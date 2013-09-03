@@ -1,5 +1,9 @@
 if CROSS_COMPILING
+if DISABLE_JIT
+SUBDIRS = arch utils io-layer metadata $(interpreter_dir) mini profiler
+else
 SUBDIRS = arch utils io-layer cil metadata $(interpreter_dir) mini dis profiler
+endif
 else
 if INSTALL_MONOTOUCH
 SUBDIRS = utils io-layer metadata arch mini profiler
