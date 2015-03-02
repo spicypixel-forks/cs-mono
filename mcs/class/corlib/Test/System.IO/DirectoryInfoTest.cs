@@ -10,6 +10,7 @@
 
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.IO;
 using System.Runtime.Serialization;
 using System.Runtime.Serialization.Formatters.Binary;
@@ -967,7 +968,6 @@ namespace MonoTests.System.IO
 		}
 
 		[Test]
-		[Category("TargetJvmNotSupported")] // LastAccessTime not supported for TARGET_JVM
 		public void LastAccessTime ()
 		{
 			DirectoryInfo info = new DirectoryInfo (TempFolder);
@@ -975,7 +975,6 @@ namespace MonoTests.System.IO
 		}
 
 		[Test]
-		[Category("TargetJvmNotSupported")] // LastAccessTime not supported for TARGET_JVM
 		public void LastAccessTimeUtc ()
 		{
 			DirectoryInfo info = new DirectoryInfo (TempFolder);
@@ -983,7 +982,6 @@ namespace MonoTests.System.IO
 		}
 
 		[Test]
-		[Category("TargetJvmNotSupported")] // CreationTime not supported for TARGET_JVM
 		public void CreationTime ()
 		{
 			DirectoryInfo info = new DirectoryInfo (TempFolder);
@@ -991,7 +989,6 @@ namespace MonoTests.System.IO
 		}
 
 		[Test]
-		[Category("TargetJvmNotSupported")] // CreationTime not supported for TARGET_JVM
 		public void CreationTimeUtc ()
 		{
 			DirectoryInfo info = new DirectoryInfo (TempFolder);
@@ -1030,7 +1027,7 @@ namespace MonoTests.System.IO
 		public void WindowsSystem32_76191 ()
 		{
 			if (RunningOnUnix)
-				return;
+				Assert.Ignore ("Running on Unix.");
 
 			Directory.SetCurrentDirectory (@"C:\WINDOWS\system32");
 			WindowsParentFullName ("C:", "C:\\WINDOWS");
@@ -1062,6 +1059,23 @@ namespace MonoTests.System.IO
 			info = new DirectoryInfo (TempFolder + DSC + "ToString.Test");
 			Assert.AreEqual (TempFolder + DSC + "ToString.Test", info.ToString ());
 		}
+
+#if NET_4_0
+		[Test]
+		public void EnumerateFileSystemInfosTest ()
+		{
+			var dirInfo = new DirectoryInfo (TempFolder);
+			dirInfo.CreateSubdirectory ("1").CreateSubdirectory ("a");
+			dirInfo.CreateSubdirectory ("2").CreateSubdirectory ("b");
+
+			var l = new List<string> ();
+			foreach (var info in dirInfo.EnumerateFileSystemInfos ("*", SearchOption.AllDirectories))
+				l.Add (info.Name);
+
+			l.Sort ();
+			Assert.AreEqual ("1,2,a,b", string.Join (",", l), "#1");
+		}
+#endif
 
 #if !MOBILE
 		[Test]
@@ -1115,7 +1129,7 @@ namespace MonoTests.System.IO
 			try {
 				Directory.CreateDirectory (path);
 				Directory.CreateDirectory (dir);
-				Mono.Unix.UnixSymbolicLinkInfo li = new Mono.Unix.UnixSymbolicLinkInfo (link);
+				global::Mono.Unix.UnixSymbolicLinkInfo li = new global::Mono.Unix.UnixSymbolicLinkInfo (link);
 				li.CreateSymbolicLinkTo (dir);
 
 				DirectoryInfo info = new DirectoryInfo (path);
@@ -1134,7 +1148,7 @@ namespace MonoTests.System.IO
 			// Linux-like platforms but mono-on-windows
 			// doesn't set the NotDotNet category
 			if (!RunningOnUnix) {
-				return;
+				Assert.Ignore ("Not running on Unix.");
 			}
 
 			Symlink_helper ();

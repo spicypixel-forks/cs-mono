@@ -31,6 +31,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Microsoft.Build.Internal;
 using System.Xml;
+using Microsoft.Build.Exceptions;
 
 namespace Microsoft.Build.Construction
 {
@@ -61,6 +62,28 @@ namespace Microsoft.Build.Construction
                 }
                 string @remove;
                 public string Remove { get { return @remove ?? String.Empty; } set { @remove = value; } }
+                string keepDuplicates;
+		string keepMetadata;
+		string removeMetadata;
+		#if NET_4_5
+                public
+                #else
+                internal
+                #endif
+                string KeepDuplicates { get { return keepDuplicates ?? String.Empty; } set { keepDuplicates = value; } }
+		#if NET_4_5
+                public
+                #else
+                internal
+                #endif
+		string KeepMetadata { get { return keepMetadata ?? String.Empty; } set { keepMetadata = value; } }
+		#if NET_4_5
+                public
+                #else
+                internal
+                #endif
+		string RemoveMetadata { get { return removeMetadata ?? String.Empty; } set { removeMetadata = value; } }
+                
                 public ProjectMetadataElement AddMetadata (string name, string unevaluatedValue)
                 {
                         var metadata = ContainingProject.CreateMetadataElement (name, unevaluatedValue);
@@ -74,9 +97,13 @@ namespace Microsoft.Build.Construction
                 {
                         SaveAttribute (writer, "Include", Include);
                         SaveAttribute (writer, "Exclude", Exclude);
+                        SaveAttribute (writer, "KeepDuplicates", KeepDuplicates);
+                        SaveAttribute (writer, "KeepMetadata", KeepMetadata);
+                        SaveAttribute (writer, "RemoveMetadata", RemoveMetadata);
                         SaveAttribute (writer, "Remove", Remove);
                         base.SaveValue (writer);
                 }
+
                 internal override void LoadAttribute (string name, string value)
                 {
                         switch (name) {
@@ -86,6 +113,15 @@ namespace Microsoft.Build.Construction
                         case "Exclude":
                                 Exclude = value;
                                 break;
+                        case "KeepDuplicates":
+                                KeepDuplicates = value;
+                                break;
+                        case "KeepMetadata":
+                                KeepMetadata = value;
+                                break;
+                        case "RemoveMetadata":
+                                RemoveMetadata = value;
+                                break;
                         case "Remove":
                                 Remove = value;
                                 break;
@@ -94,11 +130,30 @@ namespace Microsoft.Build.Construction
                                 break;
                         }
                 }
-                internal override ProjectElement LoadChildElement (string name)
+                internal override void LoadValue (XmlReader reader)
                 {
-                        var metadata = ContainingProject.CreateMetadataElement (name);
+                        if (string.IsNullOrWhiteSpace (Include) && string.IsNullOrEmpty (Remove))
+                                throw new InvalidProjectFileException (Location, null, string.Format ("Both Include and Remove attribute are null or empty on '{0}' item", ItemType));
+                        base.LoadValue (reader);
+                }
+                internal override ProjectElement LoadChildElement (XmlReader reader)
+                {
+                        var metadata = ContainingProject.CreateMetadataElement (reader.LocalName);
                         AppendChild (metadata);
                         return metadata;
                 }
+#if NET_4_5
+                 public ElementLocation ExcludeLocation { get; private set; }
+                 public ElementLocation IncludeLocation { get; private set; }
+                 public ElementLocation KeepDuplicatesLocation { get; private set; }
+                 public ElementLocation RemoveLocation { get; private set; }
+                 public ElementLocation RemoveMetadataLocation { get; private set; }
+#else
+                 ElementLocation ExcludeLocation { get; set; }
+                 ElementLocation IncludeLocation { get; set; }
+                 ElementLocation KeepDuplicatesLocation { get; set; }
+                 ElementLocation RemoveLocation { get; set; }
+                 ElementLocation RemoveMetadataLocation { get; set; }
+#endif
         }
 }

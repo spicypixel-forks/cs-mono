@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 
@@ -18,7 +19,7 @@ struct GFoo<T> {
 }
 
 struct GFoo2<T> {
-	public T t, t2;
+	public T t, t2, t3;
 }
 
 class GFoo3<T> {
@@ -37,6 +38,12 @@ class GFoo3<T> {
 //
 // Tests for generic sharing of vtypes.
 // The tests use arrays to pass/receive values to keep the calling convention of the methods stable, which is a current limitation of the runtime support for gsharedvt.
+//
+
+//
+// Interfaces are used to prevent the AOT compiler from discovering instantiations, thus forcing the usage of the gsharedvt
+// versions of methods. Unused vtype type arguments are used to test gsharedvt methods with ref type arguments, i.e.
+// when calling foo<T,T2> as foo<object,bool>, the gsharedvt version is used, but with a ref type argument.
 //
 
 // FIXME: Add mixed ref/noref tests, i.e. Dictionary<string, int>
@@ -220,6 +227,9 @@ public class Tests
 		res = iface.Unbox<AnEnum, int> (AnEnum.One, 0, AnEnum.Two);
 		if (res != AnEnum.Two)
 			return 2;
+		int res2 = iface.Unbox<int, AnEnum> (0, AnEnum.One, AnEnum.Two);
+		if (res2 != 1)
+			return 3;
 		return 0;
 	}
 
@@ -383,6 +393,16 @@ public class Tests
 		return t;
 	}
 
+	interface IFaceGSharedVtIn {
+		T return_t<T> (T t);
+	}
+
+	class ClassGSharedVtIn : IFaceGSharedVtIn {
+		public T return_t<T> (T t) {
+			return t;
+		}
+	}
+
 	public static int test_0_gsharedvt_in () {
 		// Check that the non-generic argument is passed at the correct stack position
 		int r = args_simple<bool> (true, 42);
@@ -426,9 +446,14 @@ public class Tests
 		var v2 = return_t<GFoo2<int>> (v);
 		if (v2.t != 55 || v2.t2 != 32)
 			return 6;
+		IFaceGSharedVtIn o = new ClassGSharedVtIn ();
+		var v3 = new GFoo2<long> () { t = 55, t2 = 32 };
+		var v4 = o.return_t<GFoo2<long>> (v3);
+		if (v4.t != 55 || v4.t2 != 32)
+			return 7;
 		i = new GSharedTests ().return_this_t<int> (42);
 		if (i != 42)
-			return 7;
+			return 8;
 		return 0;
 	}
 
@@ -919,6 +944,47 @@ public class Tests
 		return 0;
 	}
 
+	public interface IFace1<T> {
+		void m1 ();
+		void m2 ();
+		void m3 ();
+		void m4 ();
+		void m5 ();
+	}
+
+	public class ClassIFace<T> : IFace1<T> {
+		public void m1 () {
+		}
+		public void m2 () {
+		}
+		public void m3 () {
+		}
+		public void m4 () {
+		}
+		public void m5 () {
+		}
+	}
+
+	interface IFaceIFaceCall {
+		void call<T, T2> (IFace1<object> iface);
+	}
+
+	class MakeIFaceCall : IFaceIFaceCall {
+		public void call<T, T2> (IFace1<object> iface) {
+			iface.m1 ();
+		}
+	}
+
+	// Check normal interface calls from gsharedvt call to fully instantiated methods
+	public static int test_0_instatiated_iface_call () {
+		ClassIFace<object> c1 = new ClassIFace<object> ();
+
+		IFaceIFaceCall c = new MakeIFaceCall ();
+
+		c.call<object, int> (c1);
+		return 0;
+	}
+
 	[MethodImplAttribute (MethodImplOptions.NoInlining)]
 	static string to_string<T, T2>(T t, T2 t2) {
 		return t.ToString ();
@@ -993,7 +1059,36 @@ public class Tests
 		return 0;
 	}
 
-	struct Pair<T1, T2> {
+	interface IConstrainedCalls {
+		Pair<int, int> vtype_ret<T, T2>(T t, T2 t2) where T: IReturnVType;
+	}
+
+	public interface IReturnVType {
+		Pair<int, int> return_vtype ();
+	}
+
+	public class CConstrainedCalls : IConstrainedCalls {
+		[MethodImplAttribute (MethodImplOptions.NoInlining)]
+		public Pair<int, int> vtype_ret<T, T2>(T t, T2 t2) where T : IReturnVType {
+			return t.return_vtype ();
+		}
+	}
+
+	class ReturnVType : IReturnVType {
+		public Pair<int, int> return_vtype () {
+			return new Pair<int, int> () { First = 1, Second = 2 };
+		}
+	}
+
+	public static int test_0_constrained_vtype_ret () {
+		IConstrainedCalls c = new CConstrainedCalls ();
+		var r = c.vtype_ret<ReturnVType, int> (new ReturnVType (), 1);
+		if (r.First != 1 || r.Second != 2)
+			return 1;
+		return 0;
+	}
+
+	public struct Pair<T1, T2> {
 		public T1 First;
 		public T2 Second;
 	}
@@ -1003,6 +1098,7 @@ public class Tests
 		return action(null, state);
 	}
 
+	[Category ("!FULLAOT")]
 	public static int test_0_delegate_wrappers () {
 		Func<object, Pair<int, int>, Pair<int, int>> del1 = delegate (object o, Pair<int, int> p) { return p; };
 		Func<object, Pair<int, int>, Pair<int, int>> del2 = delegate (object o, Pair<int, int> p) { return p; };
@@ -1291,11 +1387,21 @@ public class Tests
 		}
 	}
 
+	struct ConsStructThrow : IConstrained {
+		public void foo () {
+			throw new Exception ();
+		}
+
+		public void foo_ref_arg (string s) {
+		}
+	}
+
 	interface IFaceConstrained {
 		void constrained_void_iface_call<T, T2>(T t, T2 t2) where T2 : IConstrained;
 		void constrained_void_iface_call_ref_arg<T, T2>(T t, T2 t2) where T2 : IConstrained;
 		void constrained_void_iface_call_gsharedvt_arg<T, T2, T3>(T t, T2 t2, T3 t3) where T2 : IConstrained<T>;
 		T constrained_iface_call_gsharedvt_ret<T, T2, T3>(T t, T2 t2, T3 t3) where T2 : IConstrained<T>;
+		T2 constrained_normal_call<T, T2>(T t, T2 t2) where T2 : VClass;
 	}
 
 	class ClassConstrained : IFaceConstrained {
@@ -1317,6 +1423,18 @@ public class Tests
 		[MethodImplAttribute (MethodImplOptions.NoInlining)]
 		public T constrained_iface_call_gsharedvt_ret<T, T2, T3>(T t, T2 t2, T3 t3) where T2 : IConstrained<T> {
 			return t2.foo_gsharedvt_ret (t);
+		}
+
+		[MethodImplAttribute (MethodImplOptions.NoInlining)]
+		public T2 constrained_normal_call<T, T2>(T t, T2 t2) where T2 : VClass {
+			/* This becomes a constrained call even through 't2' is forced to be a reference type by the constraint */
+			return (T2)t2.foo (5);
+		}
+	}
+
+	class VClass {
+		public virtual VClass foo (int i) {
+			return this;
 		}
 	}
 
@@ -1341,6 +1459,17 @@ public class Tests
 		if (!(constrained_res is int) || ((int)constrained_res) != 43)
 			return 4;
 		return 0;
+	}
+
+	public static int test_0_constrained_eh () {
+		var s2 = new ConsStructThrow () { };
+		try {
+			IFaceConstrained c = new ClassConstrained ();
+			c.constrained_void_iface_call<int, ConsStructThrow> (1, s2);
+			return 1;
+		} catch (Exception) {
+			return 0;
+		}
 	}
 
 	public static int test_0_constrained_void_iface_call_gsharedvt_arg () {
@@ -1378,6 +1507,14 @@ public class Tests
 		return 0;
 	}
 
+	public static int test_0_constrained_normal_call () {
+		IFaceConstrained c = new ClassConstrained ();
+
+		var o = new VClass ();
+		var res = c.constrained_normal_call<int, VClass> (1, o);
+		return res == o ? 0 : 1;
+	}
+
 	public static async Task<T> FooAsync<T> (int i, int j) {
 		Task<int> t = new Task<int> (delegate () { return 42; });
 		var response = await t;
@@ -1387,12 +1524,55 @@ public class Tests
 	[MethodImplAttribute (MethodImplOptions.NoInlining)]
 	public static void call_async<T> (int i, int j) {
 		Task<T> t = FooAsync<T> (1, 2);
-		t.RunSynchronously ();
+		// FIXME: This doesn't work
+		//t.RunSynchronously ();
 	}
 
 	// In AOT mode, the async infrastructure depends on gsharedvt methods
 	public static int test_0_async_call_from_generic () {
 		call_async<string> (1, 2);
+		return 0;
+	}
+
+	public static int test_0_array_helper_gsharedvt () {
+		var arr = new AnEnum [16];
+		var c = new ReadOnlyCollection<AnEnum> (arr);
+		return c.Contains (AnEnum.Two) == false ? 0 : 1;
+	}
+
+	interface IFaceCallPatching {
+		bool caller<T, T2> ();
+	}
+
+	class CallPatching2<T> {
+		T t;
+		public object o;
+
+		[MethodImplAttribute (MethodImplOptions.NoInlining)]
+		public bool callee () {
+			return (string)o == "ABC";
+		}
+	}
+
+	class CallPatching : IFaceCallPatching {
+		public bool caller<T, T2> () {
+			var c = new CallPatching2<T> ();
+			c.o = "ABC";
+			return c.callee ();
+		}
+	}
+
+	//
+	// This tests that generic calls made from gsharedvt methods are not patched normally.
+	// If they are, the first call to 'caller' would patch in the gshared version of
+	// 'callee', causing the second call to fail because the gshared version of callee
+	// wouldn't work with CallPatching2<bool> since it has a different object layout.
+	//
+	public static int test_0_call_patching () {
+		IFaceCallPatching c = new CallPatching ();
+		c.caller<object, bool> ();
+		if (!c.caller<bool, bool> ())
+			return 1;
 		return 0;
 	}
 }

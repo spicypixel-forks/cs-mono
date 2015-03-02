@@ -6,7 +6,7 @@ thisdir = tests
 SUBDIRS =
 include ../build/rules.make
 
-DISTFILES = $(wildcard dlls/**/*.cs) $(wildcard dlls/*.cs) $(wildcard dlls/*.inc)
+DISTFILES = $(wildcard dlls/**/*.cs) $(wildcard dlls/*.cs) $(wildcard dlls/*.inc) $(wildcard dlls/*.il)
 DISTFILES += $(wildcard *.cs) $(wildcard *.il) $(wildcard *.xml) $(wildcard *.inc) $(wildcard known-issues-*) $(wildcard *.snk)
 
 with_mono_path = MONO_PATH="$(topdir)/class/lib/$(PROFILE)$(PLATFORM_PATH_SEPARATOR)$$MONO_PATH"
@@ -96,3 +96,4 @@ csproj-local:
 setup:
 	$(CSCOMPILE) -t:library dlls/test-679-2/test-679-lib-2.cs
 	$(CSCOMPILE) -t:library dlls/test-679-1/test-679-lib.cs -r:dlls/test-679-2/test-679-lib-2.dll
+	$(ILASM) -dll dlls/test-883.il

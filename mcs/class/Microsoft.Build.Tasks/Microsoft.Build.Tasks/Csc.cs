@@ -25,8 +25,6 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-#if NET_2_0
-
 using System;
 using System.IO;
 using Microsoft.Build.Framework;
@@ -43,6 +41,10 @@ namespace Microsoft.Build.Tasks {
 
 		protected internal override void AddResponseFileCommands (CommandLineBuilderExtension commandLine)
 		{
+#if !NET_4_0
+			//pre-MSBuild 2 targets don't support multi-targeting, so tell compiler to use 2.0 corlib
+			commandLine.AppendSwitch ("/sdk:2");
+#endif
 			base.AddResponseFileCommands (commandLine);
 
 			if (AdditionalLibPaths != null && AdditionalLibPaths.Length > 0)
@@ -98,12 +100,12 @@ namespace Microsoft.Build.Tasks {
 			//
 			if (References != null)
 				foreach (ITaskItem item in References) {
-					string aliases = item.GetMetadata ("Aliases") ?? String.Empty;
-					aliases = aliases.Trim ();
-					if (aliases.Length > 0)
-						commandLine.AppendSwitchIfNotNull ("/reference:" + aliases + "=", item.ItemSpec);
-					else
+					string aliases = item.GetMetadata ("Aliases");
+					if (!string.IsNullOrEmpty (aliases)) {
+						AddAliasesReference (commandLine, aliases, item.ItemSpec);
+					} else {
 						commandLine.AppendSwitchIfNotNull ("/reference:", item.ItemSpec);
+					}
 				}
 
 			if (ResponseFiles != null)
@@ -121,6 +123,21 @@ namespace Microsoft.Build.Tasks {
 				commandLine.AppendSwitchIfNotNull ("/win32res:", Win32Resource);
 		}
 
+		static void AddAliasesReference (CommandLineBuilderExtension commandLine, string aliases, string reference)
+		{
+			foreach (var alias in aliases.Split (',')) {
+				var a = alias.Trim ();
+				if (a.Length == null)
+					continue;
+
+				var r = "/reference:";
+				if (!string.Equals (a, "global", StringComparison.OrdinalIgnoreCase))
+					r += a + "=";
+
+				commandLine.AppendSwitchIfNotNull (r, reference);
+			}
+		}
+
 		[MonoTODO]
 		protected override bool CallHostObjectToExecute ()
 		{
@@ -129,7 +146,9 @@ namespace Microsoft.Build.Tasks {
 
 		protected override string GenerateFullPathToTool ()
 		{
-			return Path.Combine (ToolPath, ToolExe);
+			if (!string.IsNullOrEmpty (ToolPath))
+				return Path.Combine (ToolPath, ToolExe);
+			return ToolLocationHelper.GetPathToDotNetFrameworkFile (ToolExe, TargetDotNetFrameworkVersion.VersionLatest);
 		}
 
 		[MonoTODO]
@@ -200,11 +219,7 @@ namespace Microsoft.Build.Tasks {
 
 		protected override string ToolName {
 			get {
-#if NET_4_0
-				return MSBuildUtils.RunningOnWindows ? "dmcs.bat" : "dmcs";
-#else
-				return MSBuildUtils.RunningOnWindows ? "gmcs.bat" : "gmcs";
-#endif
+				return "mcs.exe";
 			}
 		}
 
@@ -230,4 +245,3 @@ namespace Microsoft.Build.Tasks {
 	}
 }
 
-#endif

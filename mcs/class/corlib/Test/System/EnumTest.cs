@@ -201,30 +201,22 @@ namespace MonoTests.System
 
 			Assert.AreEqual ("00", TestingEnum4.This.ToString ("x"), "#B1");
 			Assert.AreEqual ("00", TestingEnum4.This.ToString ("X"), "#B2");
-#if !TARGET_JVM // This appears not to work under .Net
 			Assert.AreEqual ("ff", TestingEnum4.Test.ToString ("x"), "#B3");
-#endif // TARGET_JVM
 			Assert.AreEqual ("FF", TestingEnum4.Test.ToString ("X"), "#B4");
 
 			Assert.AreEqual ("0000", TestingEnum5.This.ToString ("x"), "#C1");
 			Assert.AreEqual ("0000", TestingEnum5.This.ToString ("X"), "#C2");
-#if !TARGET_JVM // This appears not to work under .Net
 			Assert.AreEqual ("7fff", TestingEnum5.Test.ToString ("x"), "#C3");
-#endif // TARGET_JVM
 			Assert.AreEqual ("7FFF", TestingEnum5.Test.ToString ("X"), "#C4");
 
 			Assert.AreEqual ("00000000", TestingEnum6.This.ToString ("x"), "#D1");
 			Assert.AreEqual ("00000000", TestingEnum6.This.ToString ("X"), "#D2");
-#if !TARGET_JVM // This appears not to work under .Net
 			Assert.AreEqual ("7fffffff", TestingEnum6.Test.ToString ("x"), "#D3");
-#endif // TARGET_JVM
 			Assert.AreEqual ("7FFFFFFF", TestingEnum6.Test.ToString ("X"), "#D4");
 
 			Assert.AreEqual ("0000000000000000", TestingEnum3.This.ToString ("x"), "#E1");
 			Assert.AreEqual ("0000000000000000", TestingEnum3.This.ToString ("X"), "#E2");
-#if !TARGET_JVM // This appears not to work under .Net
 			Assert.AreEqual ("ffffffffffffffff", TestingEnum3.Test.ToString ("x"), "#E3");
-#endif // TARGET_JVM
 			Assert.AreEqual ("FFFFFFFFFFFFFFFF", TestingEnum3.Test.ToString ("X"), "#E4");
 		}
 
@@ -740,6 +732,10 @@ namespace MonoTests.System
 			success = Enum.TryParse<TestingEnum> ("is", true, out result);
 			Assert.AreEqual (true, success, "#D1");
 			Assert.AreEqual (TestingEnum.Is, result, "#D2");
+
+			success = Enum.TryParse<TestingEnum> ("  Is  ", out result);
+			Assert.AreEqual (true, success, "#E1");
+			Assert.AreEqual (TestingEnum.Is, result, "#E2");
 		}
 #endif
 
@@ -849,9 +845,12 @@ namespace MonoTests.System
 		}
 
 		[Test]
-		public void ConvertToStringType ()
+		public void IConvertible_Valid ()
 		{
-			Assert.AreEqual ("This", ((IConvertible) TestingEnum.This).ToType (typeof (string), null));
+			IConvertible ic = TestingEnum.This;
+			Assert.AreEqual ("This", ic.ToType (typeof (string), null), "#1");
+			Assert.AreEqual (TestingEnum.This, ic.ToType (typeof (TestingEnum), null), "#2");
+			Assert.AreEqual (TestingEnum.This, ic.ToType (typeof (Enum), null), "#3");
 		}
 
 		[Test]
@@ -972,23 +971,23 @@ namespace MonoTests.System
 		}
 
 		[Test]
-		public void CompareTo_ShouldBeEqualToUnderlyingType ()
+		public void CompareTo_NotEqualToUnderlyingType ()
 		{
-			Assert.AreEqual (sbyte.MinValue.CompareTo (sbyte.MinValue), EnInt8.A.CompareTo (EnInt8.A), "i8#0");
-			Assert.AreEqual (sbyte.MinValue.CompareTo ((sbyte)44), EnInt8.A.CompareTo (EnInt8.B), "i8#1");
-			Assert.AreEqual (((sbyte)44).CompareTo (sbyte.MinValue), EnInt8.B.CompareTo (EnInt8.A), "i8#2");
+			Assert.AreEqual (0, EnInt8.A.CompareTo (EnInt8.A), "i8#0");
+			Assert.AreEqual (-1, EnInt8.A.CompareTo (EnInt8.B), "i8#1");
+			Assert.AreEqual (1, EnInt8.B.CompareTo (EnInt8.A), "i8#2");
 	
-			Assert.AreEqual (byte.MinValue.CompareTo (byte.MinValue), EnUInt8.A.CompareTo (EnUInt8.A), "ui8#0");
-			Assert.AreEqual (byte.MinValue.CompareTo ((byte)55),  EnUInt8.A.CompareTo (EnUInt8.B), "ui8#1");
-			Assert.AreEqual (((byte)55).CompareTo (byte.MinValue), EnUInt8.B.CompareTo (EnUInt8.A),"ui8#2");
+			Assert.AreEqual (0, EnUInt8.A.CompareTo (EnUInt8.A), "ui8#0");
+			Assert.AreEqual (-1,  EnUInt8.A.CompareTo (EnUInt8.B), "ui8#1");
+			Assert.AreEqual (1, EnUInt8.B.CompareTo (EnUInt8.A),"ui8#2");
 
-			Assert.AreEqual (short.MinValue.CompareTo (short.MinValue), EnInt16.A.CompareTo (EnInt16.A), "i16#0");
-			Assert.AreEqual (short.MinValue.CompareTo ((short)66), EnInt16.A.CompareTo (EnInt16.B), "i16#1");
-			Assert.AreEqual (((short)66).CompareTo (short.MinValue), EnInt16.B.CompareTo (EnInt16.A), "i16#2");
+			Assert.AreEqual (0, EnInt16.A.CompareTo (EnInt16.A), "i16#0");
+			Assert.AreEqual (-1, EnInt16.A.CompareTo (EnInt16.B), "i16#1");
+			Assert.AreEqual (1, EnInt16.B.CompareTo (EnInt16.A), "i16#2");
 
-			Assert.AreEqual (ushort.MinValue.CompareTo (ushort.MinValue), EnUInt16.A.CompareTo (EnUInt16.A), "ui16#0");
-			Assert.AreEqual (ushort.MinValue.CompareTo ((ushort)77), EnUInt16.A.CompareTo (EnUInt16.B), "ui16#1");
-			Assert.AreEqual (((ushort)77).CompareTo (ushort.MinValue), EnUInt16.B.CompareTo (EnUInt16.A), "ui16#2");
+			Assert.AreEqual (0, EnUInt16.A.CompareTo (EnUInt16.A), "ui16#0");
+			Assert.AreEqual (-1, EnUInt16.A.CompareTo (EnUInt16.B), "ui16#1");
+			Assert.AreEqual (1, EnUInt16.B.CompareTo (EnUInt16.A), "ui16#2");
 
 			Assert.AreEqual (int.MinValue.CompareTo (int.MinValue), EnInt32.A.CompareTo (EnInt32.A), "i32#0");
 			Assert.AreEqual (int.MinValue.CompareTo ((int)88), EnInt32.A.CompareTo (EnInt32.B), "i32#1");

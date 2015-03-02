@@ -10,10 +10,13 @@ net_2_0_SUBDIRS := build class nunit24 ilasm tools tests errors docs
 monodroid_SUBDIRS := build class
 monotouch_SUBDIRS := build class
 monotouch_runtime_SUBDIRS := build class
+xammac_SUBDIRS := build class
 mobile_SUBDIRS := build class
+mobile_static_SUBDIRS := build class
 net_3_5_SUBDIRS := build class tools/xbuild
 net_4_0_SUBDIRS := build class
 net_4_5_SUBDIRS := build mcs class nunit24 ilasm tools tests errors docs
+xbuild_12_SUBDIRS := build class tools/xbuild
 
 # List of test subdirs that should pass 100%
 centum_tests := \
@@ -22,7 +25,6 @@ centum_tests := \
 	class/System.XML					\
 	class/Commons.Xml.Relaxng				\
 	class/Cscompmgd						\
-	class/Microsoft.JScript					\
 	class/Mono.Posix					\
 	class/Mono.Security					\
 	class/System.Design					\
@@ -81,11 +83,11 @@ all-local $(STD_TARGETS:=-local):
 	@:
 
 dir-check:
-	@if [ "$(NO_DIR_CHECK)" = "" -a "$(PROFILE)" != "basic" ]; then make -C ../runtime; fi
+	@if [ "$(NO_DIR_CHECK)" = "" -a "$(PROFILE)" != "basic" ]; then $(MAKE) -C ../runtime; fi
 
 # fun specialty targets
 
-PROFILES = net_2_0 net_3_5 net_4_0 net_4_5
+PROFILES = net_2_0 net_3_5 net_4_0 net_4_5 xbuild_12
 
 .PHONY: all-profiles $(STD_TARGETS:=-profiles)
 all-profiles $(STD_TARGETS:=-profiles): %-profiles: profiles-do--%
@@ -104,13 +106,16 @@ profiles-do--run-test:
 
 # Orchestrate the bootstrap here.
 _boot_ = all clean install
+$(_boot_:%=profile-do--xbuild_12--%):         profile-do--xbuild_12--%:         profile-do--net_4_5--%
 $(_boot_:%=profile-do--net_4_5--%):           profile-do--net_4_5--%:           profile-do--build--%
 $(_boot_:%=profile-do--net_4_0--%):           profile-do--net_4_0--%:           profile-do--build--%
 $(_boot_:%=profile-do--net_3_5--%):           profile-do--net_3_5--%:           profile-do--net_2_0--%
 $(_boot_:%=profile-do--monodroid--%):         profile-do--monodroid--%:         profile-do--build--%
 $(_boot_:%=profile-do--monotouch--%):         profile-do--monotouch--%:         profile-do--build--%
 $(_boot_:%=profile-do--monotouch_runtime--%):  profile-do--monotouch_runtime--%:  profile-do--build--%
+$(_boot_:%=profile-do--xammac--%):            profile-do--xammac--%:            profile-do--build--%
 $(_boot_:%=profile-do--mobile--%):            profile-do--mobile--%:         profile-do--build--%
+$(_boot_:%=profile-do--mobile_static--%):     profile-do--mobile_static--%:     profile-do--build--%
 $(_boot_:%=profile-do--net_2_0--%):           profile-do--net_2_0--%:           profile-do--build--%
 $(_boot_:%=profile-do--build--%):             profile-do--build--%:             profile-do--basic--%
 

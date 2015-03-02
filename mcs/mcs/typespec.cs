@@ -295,6 +295,12 @@ namespace Mono.CSharp
 			}
 		}
 
+		public bool IsStructOrEnum {
+			get {
+				return (Kind & (MemberKind.Struct | MemberKind.Enum)) != 0;
+			}
+		}
+
 		public bool IsTypeBuilder {
 			get {
 #if STATIC
@@ -378,7 +384,7 @@ namespace Mono.CSharp
 				throw new InternalErrorException ("Modifying expanded interface list");
 
 			if (ifaces == null) {
-				ifaces = new List<TypeSpec> () { iface };
+				ifaces = new List<TypeSpec> { iface };
 				return true;
 			}
 
@@ -645,6 +651,7 @@ namespace Mono.CSharp
 			case MemberKind.Struct:
 			case MemberKind.Enum:
 			case MemberKind.Void:
+			case MemberKind.PointerType:
 				return false;
 			case MemberKind.InternalCompilerType:
 				//
@@ -1253,6 +1260,9 @@ namespace Mono.CSharp
 						return false;
 				}
 
+				if (a.IsNested && b.IsNested)
+					return IsEqual (a.DeclaringType, b.DeclaringType);
+
 				return true;
 			}
 
@@ -1416,6 +1426,7 @@ namespace Mono.CSharp
 		bool IsPartial { get; }
 		bool IsComImport { get; }
 		bool IsTypeForwarder { get; }
+		bool IsCyclicTypeForwarder { get; }
 		int TypeParametersCount { get; }
 		TypeParameterSpec[] TypeParameters { get; }
 
@@ -1435,6 +1446,7 @@ namespace Mono.CSharp
 		public static readonly InternalType FakeInternalType = new InternalType ("<fake$type>");
 		public static readonly InternalType Namespace = new InternalType ("<namespace>");
 		public static readonly InternalType ErrorType = new InternalType ("<error>");
+		public static readonly InternalType VarOutType = new InternalType ("var out");
 
 		readonly string name;
 
@@ -1482,6 +1494,12 @@ namespace Mono.CSharp
 		}
 
 		bool ITypeDefinition.IsTypeForwarder {
+			get {
+				return false;
+			}
+		}
+
+		bool ITypeDefinition.IsCyclicTypeForwarder {
 			get {
 				return false;
 			}
@@ -1612,6 +1630,12 @@ namespace Mono.CSharp
 		}
 
 		bool ITypeDefinition.IsTypeForwarder {
+			get {
+				return false;
+			}
+		}
+
+		bool ITypeDefinition.IsCyclicTypeForwarder {
 			get {
 				return false;
 			}
@@ -1913,6 +1937,11 @@ namespace Mono.CSharp
 			}
 
 			return ac;
+		}
+
+		public override List<MissingTypeSpecReference> ResolveMissingDependencies (MemberSpec caller)
+		{
+			return Element.ResolveMissingDependencies (caller);
 		}
 	}
 

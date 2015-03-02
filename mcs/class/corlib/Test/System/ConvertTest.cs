@@ -2852,7 +2852,7 @@ namespace MonoTests.System {
 				Assert.AreEqual (typeof(ArgumentOutOfRangeException), e.GetType(), "#T08");
 			}		
 		}
-#if NET_2_0
+
 		[Test]
 		public void ToBase64String_Bug76876 ()
 		{
@@ -2907,7 +2907,7 @@ namespace MonoTests.System {
 			Assert.IsFalse (base64.Contains (Environment.NewLine), "58-nl"); // one lines
 			Assert.IsTrue (base64.EndsWith ("AA=="), "58-le"); // no NewLine
 		}
-#endif
+
 		/* Have experienced some problems with FromBase64CharArray using mono. Something 
 		 * about error in a unicode file.
 		 *
@@ -2923,7 +2923,6 @@ namespace MonoTests.System {
 
 		[Test]
 		[ExpectedException (typeof (FormatException))]
-		[Category ("TargetJvmNotWorking")]
 		public void FromBase64CharArray_Empty ()
 		{
 			Convert.FromBase64CharArray (new char[0], 0, 0);
@@ -2931,7 +2930,6 @@ namespace MonoTests.System {
 
 		[Test]
 		[ExpectedException (typeof (FormatException))]
-		[Category ("TargetJvmNotWorking")]
 		public void FormatBase64CharArray_OnlyWhitespace ()
 		{
 			Convert.FromBase64CharArray (new char[3] {' ', 
@@ -3061,23 +3059,15 @@ namespace MonoTests.System {
 		}
 
 		[Test]
-		[Category ("TargetJvmNotWorking")]
 		public void FromBase64_Empty ()
 		{
 			Assert.AreEqual (new byte[0], Convert.FromBase64String (string.Empty));
 		}
 
 		[Test]
-#if !NET_2_0
-		[ExpectedException (typeof (FormatException))]
-#endif
 		public void FromBase64_OnlyWhiteSpace ()
 		{
-#if NET_2_0
 			Assert.AreEqual (new byte[0], Convert.FromBase64String ("  \r\t"));
-#else
-			Convert.FromBase64String ("  \r\t");
-#endif
 		}
 
 		[Test]
@@ -3109,6 +3099,7 @@ namespace MonoTests.System {
 			}
 		}
 
+		[Test]
 		public void TestConvertFromNull() {
 			
 			Assert.AreEqual (false, Convert.ToBoolean (null as object), "#W1");
@@ -3694,14 +3685,7 @@ namespace MonoTests.System {
 		}
 
 		[Test]
-		// 2005/01/10: The docs say this should throw an InvalidCastException,
-		// however, MS.NET 1.1 throws a NullReferenceException. Assuming docs
-		// are wrong.
-#if NET_2_0
 		[ExpectedException (typeof (InvalidCastException))]
-#else
-		[ExpectedException (typeof (NullReferenceException))]
-#endif
 		public void ChangeTypeNullToValuetype ()
 		{
 			Convert.ChangeType (null, typeof (int));
@@ -4755,6 +4739,12 @@ namespace MonoTests.System {
 				}
 			}
 		}
+
+		[Test]
+		public void ToInt32_InvalidFormatProvider ()
+		{
+			Assert.AreEqual (5, Convert.ToInt32 ("5", new InvalidFormatProvider ()));
+		}
 	}
 
 	public class Image
@@ -4879,6 +4869,14 @@ namespace MonoTests.System {
 		ulong IConvertible.ToUInt64 (IFormatProvider provider)
 		{
 			return (ulong)((IConvertible)this).ToType (typeof (ulong), provider);
+		}
+	}
+
+	class InvalidFormatProvider : IFormatProvider
+	{
+		public object GetFormat (Type formatType)
+		{
+			return "";
 		}
 	}
 }

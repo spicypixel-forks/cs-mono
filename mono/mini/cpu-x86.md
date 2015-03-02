@@ -63,7 +63,6 @@
 # See the code in mini-x86.c for more details on how the specifiers are used.
 #
 break: len:1
-jmp: len:32 clob:c
 call: dest:a clob:c len:17
 tailcall: len:120 clob:c
 br: len:5
@@ -150,7 +149,7 @@ call_membase: dest:a src1:b len:16 nacl:18 clob:c
 iconst: dest:i len:5
 r4const: dest:f len:15
 r8const: dest:f len:16
-store_membase_imm: dest:b len:10
+store_membase_imm: dest:b len:11
 store_membase_reg: dest:b src1:i len:7
 storei1_membase_imm: dest:b len:10
 storei1_membase_reg: dest:b src1:y len:7
@@ -242,6 +241,9 @@ float_cgt: dest:y src1:f src2:f len:25
 float_cgt_un: dest:y src1:f src2:f len:37
 float_clt: dest:y src1:f src2:f len:25
 float_clt_un: dest:y src1:f src2:f len:32
+float_cneq: dest:y src1:f src2:f len:25
+float_cge: dest:y src1:f src2:f len:37
+float_cle: dest:y src1:f src2:f len:37
 float_conv_to_u: dest:i src1:f len:36
 call_handler: len:11 clob:c
 aot_const: dest:i len:5
@@ -299,10 +301,11 @@ bigmul: len:2 dest:l src1:a src2:i
 bigmul_un: len:2 dest:l src1:a src2:i
 sext_i1: dest:i src1:y len:3
 sext_i2: dest:i src1:y len:3
-tls_get: dest:i len:20
+tls_get: dest:i len:32
 tls_get_reg: dest:i src1:i len:20
+tls_set: src1:i len:20
+tls_set_reg: src1:i src2:i len:20
 atomic_add_i4: src1:b src2:i dest:i len:16
-atomic_add_new_i4: src1:b src2:i dest:i len:16
 atomic_exchange_i4: src1:b src2:i dest:a len:24
 atomic_cas_i4: src1:b src2:i src3:a dest:a len:24
 memory_barrier: len:16
@@ -316,6 +319,8 @@ hard_nop: len:1
 nop: len:0
 dummy_use: src1:i len:0
 dummy_store: len:0
+dummy_iconst: dest:i len:0
+dummy_r8const: dest:f len:0
 not_reached: len:0
 not_null: src1:i len:0
 
@@ -347,6 +352,12 @@ int_cgt: dest:y len:6
 int_cgt_un: dest:y len:6
 int_clt: dest:y len:6
 int_clt_un: dest:y len:6
+
+int_cneq: dest:y len:6
+int_cge: dest:y len:6
+int_cle: dest:y len:6
+int_cge_un: dest:y len:6
+int_cle_un: dest:y len:6
 
 cond_exc_ieq: len:6
 cond_exc_ine_un: len:6
@@ -622,3 +633,5 @@ gc_liveness_def: len:0
 gc_liveness_use: len:0
 gc_spill_slot_liveness_def: len:0
 gc_param_slot_liveness_def: len:0
+get_sp: dest:i len:6
+set_sp: src1:i len:6

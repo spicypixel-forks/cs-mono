@@ -5,10 +5,12 @@
 //   Duco Fijma (duco@lorentz.xs4all.nl)
 //   Andreas Nahr (ClassDevelopment@A-SoftTech.com)
 //   Sebastien Pouliot  <sebastien@ximian.com>
+//   Marek Safar (marek.safar@gmail.com)
 //
 // (C) 2001 Duco Fijma
 // (C) 2004 Andreas Nahr
 // Copyright (C) 2004 Novell (http://www.novell.com)
+// Copyright (C) 2014 Xamarin Inc (http://www.xamarin.com)
 //
 // Permission is hereby granted, free of charge, to any person obtaining
 // a copy of this software and associated documentation files (the
@@ -543,7 +545,7 @@ namespace System
 
 			NumberFormatInfo number_info = null;
 			if (formatProvider != null)
-				number_info = (NumberFormatInfo)formatProvider.GetFormat (typeof (NumberFormatInfo));
+				number_info = formatProvider.GetFormat (typeof (NumberFormatInfo)) as NumberFormatInfo;
 			if (number_info == null)
 				number_info = Thread.CurrentThread.CurrentCulture.NumberFormat;
 
@@ -606,50 +608,85 @@ namespace System
 
 			StringBuilder sb = new StringBuilder (format.Length + 1);
 
-			for (;;) {
+			while (true) {
 				if (parser.AtEnd)
 					break;
 
 				element = parser.GetNextElement ();
 				switch (element.Type) {
-					case FormatElementType.Days:
-						value = Math.Abs (Days);
-						sb.Append (value.ToString ("D" + element.IntValue));
-						break;
-					case FormatElementType.Hours:
-						value = Math.Abs (Hours);
-						sb.Append (value.ToString ("D" + element.IntValue));
-						break;
-					case FormatElementType.Minutes:
-						value = Math.Abs (Minutes);
-						sb.Append (value.ToString ("D" + element.IntValue));
-						break;
-					case FormatElementType.Seconds:
-						value = Math.Abs (Seconds);
-						sb.Append (value.ToString ("D" + element.IntValue));
-						break;
-					case FormatElementType.Ticks:
-						value = Math.Abs (Milliseconds);
-						sb.Append (value.ToString ("D" + element.IntValue));
-						break;
-					case FormatElementType.TicksUppercase:
-						value = Math.Abs (Milliseconds);
-						if (value > 0) {
-							int threshold = (int)Math.Pow (10, element.IntValue);
-							while (value >= threshold)
-								value /= 10;
-							sb.Append (value.ToString ());
-						}
-						break;
-					case FormatElementType.EscapedChar:
-						sb.Append (element.CharValue);
-						break;
-					case FormatElementType.Literal:
-						sb.Append (element.StringValue);
-						break;
-					default:
-						throw new FormatException ("The format is not recognized.");
+				case FormatElementType.Days:
+					value = Math.Abs (Days);
+					break;
+				case FormatElementType.Hours:
+					value = Math.Abs (Hours);
+					break;
+				case FormatElementType.Minutes:
+					value = Math.Abs (Minutes);
+					break;
+				case FormatElementType.Seconds:
+					value = Math.Abs (Seconds);
+					break;
+				case FormatElementType.Ticks:
+				case FormatElementType.TicksUppercase:
+					//
+					// TODO: Unify with datetime ticks formatting
+					//
+					value = (int)(_ticks % TicksPerSecond);
+					if (value == 0) {
+						if (element.Type == FormatElementType.Ticks)
+							break;
+
+						continue;
+					}
+
+					int total_length = element.IntValue;
+					const int max_length = 7;
+					int digits = max_length;
+					for (var dv = (int)Math.Pow (10, max_length - 1); dv > value; dv /= 10, --digits)
+						;
+
+					//
+					// Skip only leading zeros in F format
+					//
+					if (element.Type == FormatElementType.TicksUppercase && max_length - digits >= total_length)
+						continue;
+
+					//
+					// Add leading zeros
+					//
+					int leading = 0;
+					for (; leading < total_length && leading < max_length - digits; ++leading) {
+						sb.Append ("0");
+					}
+
+					if (total_length == leading)
+						continue;
+
+					//
+					// Remove trailing zeros
+					//
+					if (element.Type == FormatElementType.TicksUppercase) {
+						while (value % 10 == 0)
+							value /= 10;
+					}
+
+					var max_value = (int)Math.Pow (10, total_length - leading);
+					while (value >= max_value)
+						value /= 10;
+
+					sb.Append (value.ToString (CultureInfo.InvariantCulture));
+					continue;
+				case FormatElementType.EscapedChar:
+					sb.Append (element.CharValue);
+					continue;
+				case FormatElementType.Literal:
+					sb.Append (element.StringValue);
+					continue;
+				default:
+					throw new FormatException ("The format is not recognized.");
 				}
+
+				sb.Append (value.ToString ("D" + element.IntValue.ToString ()));
 			}
 
 			return sb.ToString ();
@@ -756,11 +793,11 @@ namespace System
 				number_format = GetNumberFormatInfo (formatProvider);
 			}
 
-			NumberFormatInfo GetNumberFormatInfo (IFormatProvider formatProvider)
+			static NumberFormatInfo GetNumberFormatInfo (IFormatProvider formatProvider)
 			{
 				NumberFormatInfo format = null;
 				if (formatProvider != null)
-					format = (NumberFormatInfo) formatProvider.GetFormat (typeof (NumberFormatInfo));
+					format = formatProvider.GetFormat (typeof (NumberFormatInfo)) as NumberFormatInfo;
 				if (format == null)
 					format = Thread.CurrentThread.CurrentCulture.NumberFormat;
 

@@ -78,6 +78,11 @@ namespace System.Net.Sockets
 			Init(AddressFamily.InterNetwork);
 			client.Bind(new IPEndPoint(IPAddress.Any, 0));
 		}
+
+		internal TcpClient (Socket s)
+		{
+			client = s;
+		}
 	
 		public TcpClient (AddressFamily family)
 		{
@@ -125,9 +130,6 @@ namespace System.Net.Sockets
 			get { return client.Connected; }
 		}
 
-#if TARGET_JVM
-		[MonoNotSupported ("Not supported as Socket.ExclusiveAddressUse is not supported")]
-#endif
 		public bool ExclusiveAddressUse {
 			get {
 				return(client.ExclusiveAddressUse);
@@ -135,11 +137,6 @@ namespace System.Net.Sockets
 			set {
 				client.ExclusiveAddressUse = value;
 			}
-		}
-
-		internal void SetTcpClient (Socket s) 
-		{
-			Client = s;
 		}
 
 		public LingerOption LingerState {
@@ -372,25 +369,16 @@ namespace System.Net.Sockets
 			client.EndConnect (asyncResult);
 		}
 		
-#if TARGET_JVM
-		[MonoNotSupported ("Not supported as Socket.BeginConnect is not supported")]
-#endif
 		public IAsyncResult BeginConnect (IPAddress address, int port, AsyncCallback requestCallback, object state)
 		{
 			return client.BeginConnect (address, port, requestCallback, state);
 		}
 		
-#if TARGET_JVM
-		[MonoNotSupported ("Not supported as Socket.BeginConnect is not supported")]
-#endif
 		public IAsyncResult BeginConnect (IPAddress[] addresses, int port, AsyncCallback requestCallback, object state)
 		{
 			return client.BeginConnect (addresses, port, requestCallback, state);
 		}
 		
-#if TARGET_JVM
-		[MonoNotSupported ("Not supported as Socket.BeginConnect is not supported")]
-#endif
 		public IAsyncResult BeginConnect (string host, int port, AsyncCallback requestCallback, object state)
 		{
 			return client.BeginConnect (host, port, requestCallback, state);

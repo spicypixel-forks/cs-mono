@@ -40,7 +40,7 @@ namespace System
 	public class AggregateException : Exception
 	{
 		List<Exception> innerExceptions = new List<Exception> ();
-		const string defaultMessage = "One or more errors occured";
+		const string defaultMessage = "One or more errors occurred";
 		
 		public AggregateException () : base (defaultMessage)
 		{
@@ -63,7 +63,7 @@ namespace System
 		}
 		
 		public AggregateException (params Exception[] innerExceptions)
-			: this (string.Empty, innerExceptions)
+			: this (defaultMessage, innerExceptions)
 		{
 		}
 		
@@ -163,9 +163,18 @@ namespace System
 
 		public override Exception GetBaseException ()
 		{
-			if (innerExceptions == null || innerExceptions.Count == 0)
-				return this;
-			return innerExceptions[0].GetBaseException ();
+			Exception inner = this;
+			for (var ae = this; ae.innerExceptions.Count == 1;) {
+				inner = ae.InnerExceptions [0];
+
+				var aei = inner as AggregateException;
+				if (aei == null)
+					break;
+
+				ae = aei;
+			}
+
+			return inner;
 		}
 	}
 }

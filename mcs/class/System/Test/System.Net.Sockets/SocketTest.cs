@@ -205,7 +205,6 @@ namespace MonoTests.System.Net.Sockets
 			Assert.AreEqual (CFAConnected, false, "ConnectFail");
 		}
 		
-#if !TARGET_JVM
 		[Test]
 #if !NET_2_0
 		[ExpectedException (typeof (ArgumentException))]
@@ -220,7 +219,6 @@ namespace MonoTests.System.Net.Sockets
 				sock.Close ();
 			}
 		}
-#endif
 		[Test]
 		public void TestSelect1 ()
 		{
@@ -1648,7 +1646,15 @@ namespace MonoTests.System.Net.Sockets
 		{
 			Socket sock = (Socket)asyncResult.AsyncState;
 			
-			sock.EndConnect (asyncResult);
+			try {
+				sock.EndConnect (asyncResult);
+			} catch (Exception e) {
+				Console.WriteLine ("BCCallback exception:");
+				Console.WriteLine (e);
+
+				throw;
+			}
+
 			BCConnected = true;
 			
 			BCCalledBack.Set ();
@@ -1783,9 +1789,22 @@ namespace MonoTests.System.Net.Sockets
 			/* Longer wait here, because the ms runtime
 			 * takes a lot longer to not connect
 			 */
-			if (BCCalledBack.WaitOne (10000, false) == false) {
+			/*
+			if (BCCalledBack.WaitOne (30000, false) == false) {
 				Assert.Fail ("BeginConnectMultiple wait failed");
 			}
+			*/
+
+			var sw = new global::System.Diagnostics.Stopwatch ();
+			sw.Start ();
+
+			BCCalledBack.WaitOne ();
+
+			sw.Stop ();
+			Console.WriteLine (sw.ElapsedMilliseconds);
+
+			if (sw.ElapsedMilliseconds > 30000)
+				Assert.Fail ("BeginConnectMultiple wait failed");
 			
 			Assert.AreEqual (true, BCConnected, "BeginConnectMultiple #1");
 			Assert.AreEqual (AddressFamily.InterNetwork, sock.RemoteEndPoint.AddressFamily, "BeginConnectMultiple #2");
@@ -1810,7 +1829,7 @@ namespace MonoTests.System.Net.Sockets
 			// Need at least two addresses.
 			var ips = Dns.GetHostAddresses (string.Empty);
 			if (ips.Length < 1)
-				return;
+				Assert.Ignore ("This test needs at least two IP addresses.");
 
 			var allIps = new IPAddress [ips.Length + 1];
 			allIps [0] = IPAddress.Loopback;
@@ -2304,7 +2323,7 @@ namespace MonoTests.System.Net.Sockets
 			// Need at least two addresses.
 			var ips = Dns.GetHostAddresses (string.Empty);
 			if (ips.Length < 1)
-				return;
+				Assert.Ignore ("This test needs at least two IP addresses.");
 
 			var allIps = new IPAddress [ips.Length + 1];
 			allIps [0] = IPAddress.Loopback;
@@ -4140,6 +4159,54 @@ namespace MonoTests.System.Net.Sockets
 				Assert.IsNull (ex.InnerException, "#3");
 				Assert.IsNotNull (ex.Message, "#4");
 				Assert.AreEqual (typeof (Socket).FullName, ex.ObjectName, "#5");
+			}
+		}
+
+		[Test]
+		public void SetSocketOption_MulticastInterfaceIndex_Any ()
+		{
+			IPAddress ip = IPAddress.Parse ("239.255.255.250");
+			int index = 0;
+			using (Socket s = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp))
+			{
+				s.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastInterface, IPAddress.HostToNetworkOrder(index));
+				s.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.AddMembership, new MulticastOption(ip, index));
+			}
+		}
+
+		[Test]
+		public void SetSocketOption_MulticastInterfaceIndex_Loopback ()
+		{
+			IPAddress ip = IPAddress.Parse ("239.255.255.250");
+			int index = 1;
+			using (Socket s = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp))
+			{
+				s.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastInterface, IPAddress.HostToNetworkOrder(index));
+				s.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.AddMembership, new MulticastOption(ip, index));
+			}
+		}
+
+		[Test]
+		public void SetSocketOption_MulticastInterfaceIndex_Invalid ()
+		{
+			IPAddress ip = IPAddress.Parse ("239.255.255.250");
+			int index = 31415;
+			using (Socket s = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp))
+			{
+				try
+				{
+					s.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastInterface, IPAddress.HostToNetworkOrder(index));
+					Assert.Fail ("#1");
+				}
+				catch
+				{}
+				try
+				{
+					s.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.AddMembership, new MulticastOption(ip, index));
+					Assert.Fail ("#2");
+				}
+				catch
+				{}
 			}
 		}
 

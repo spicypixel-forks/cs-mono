@@ -289,9 +289,8 @@ namespace System.IO {
 			return fullpath;
 		}
 
-		[DllImport("Kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
 		// http://msdn.microsoft.com/en-us/library/windows/desktop/aa364963%28v=vs.85%29.aspx
-		// http://www.codeproject.com/Tips/223321/Win32-API-GetFullPathName
+		[DllImport("Kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
 		private static extern int GetFullPathName(string path, int numBufferChars, StringBuilder buffer, ref IntPtr lpFilePartOrNull); 
 
 		internal static string GetFullPathName(string path)
@@ -384,7 +383,11 @@ namespace System.IO {
 						canonicalize = start > 0;
 					}
 
-					path = Directory.InsecureGetCurrentDirectory() + DirectorySeparatorStr + path;
+					var cwd = Directory.InsecureGetCurrentDirectory();
+					if (cwd [cwd.Length - 1] == DirectorySeparatorChar)
+						path = cwd + path;
+					else
+						path = cwd + DirectorySeparatorChar + path;					
 				} else if (DirectorySeparatorChar == '\\' &&
 					path.Length >= 2 &&
 					IsDsc (path [0]) &&
@@ -467,26 +470,25 @@ namespace System.IO {
 			FileStream f = null;
 			string path;
 			Random rnd;
-			int num = 0;
+			int num;
 			int count = 0;
 
 			SecurityManager.EnsureElevatedPermissions (); // this is a no-op outside moonlight
 
 			rnd = new Random ();
+			var tmp_path = GetTempPath ();
 			do {
 				num = rnd.Next ();
 				num++;
-				path = Path.Combine (GetTempPath(), "tmp" + num.ToString("x") + ".tmp");
+				path = Path.Combine (tmp_path, "tmp" + num.ToString ("x", CultureInfo.InvariantCulture) + ".tmp");
 
 				try {
 					f = new FileStream (path, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.Read,
 							    8192, false, (FileOptions) 1);
-				}
-				catch (IOException ex){
+				} catch (IOException ex){
 					if (ex.hresult != MonoIO.FileAlreadyExistsHResult || count ++ > 65536)
 						throw;
-				}
-				catch (UnauthorizedAccessException ex) {
+				} catch (UnauthorizedAccessException ex) {
 					if (count ++ > 65536)
 						throw new IOException (ex.Message, ex);
 				}
@@ -742,6 +744,9 @@ namespace System.IO {
 						else
 							return current + ret;
 					}
+				} else {
+					if (root != "" && ret.Length > 0 && ret [0] != '/')
+						ret = root + ret;
 				}
 				return ret;
 			}
@@ -785,13 +790,21 @@ namespace System.IO {
 			var ret = new StringBuilder ();
 			int pathsLen = paths.Length;
 			int slen;
+			need_sep = false;
+
 			foreach (var s in paths) {
-				need_sep = false;
 				if (s == null)
 					throw new ArgumentNullException ("One of the paths contains a null value", "paths");
+				if (s.Length == 0)
+					continue;
 				if (s.IndexOfAny (InvalidPathChars) != -1)
 					throw new ArgumentException ("Illegal characters in path.");
-				
+
+				if (need_sep) {
+					need_sep = false;
+					ret.Append (DirectorySeparatorStr);
+				}
+
 				pathsLen--;
 				if (IsPathRooted (s))
 					ret.Length = 0;
@@ -803,9 +816,6 @@ namespace System.IO {
 					if (p1end != DirectorySeparatorChar && p1end != AltDirectorySeparatorChar && p1end != VolumeSeparatorChar)
 						need_sep = true;
 				}
-				
-				if (need_sep)
-					ret.Append (DirectorySeparatorStr);
 			}
 
 			return ret.ToString ();

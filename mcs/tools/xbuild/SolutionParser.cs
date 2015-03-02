@@ -117,8 +117,16 @@ namespace Mono.XBuild.CommandLine {
 			AddGeneralSettings (file, p);
 
 			StreamReader reader = new StreamReader (file);
+
 			string slnVersion = GetSlnFileVersion (reader);
-			if (slnVersion == "11.00")
+
+			if (slnVersion == "12.00")
+#if XBUILD_12
+				p.DefaultToolsVersion = "12.0";
+#else
+				p.DefaultToolsVersion = "4.0";
+#endif
+			else if (slnVersion == "11.00")
 				p.DefaultToolsVersion = "4.0";
 			else if (slnVersion == "10.00")
 				p.DefaultToolsVersion = "3.5";
@@ -254,6 +262,10 @@ namespace Mono.XBuild.CommandLine {
 					if (info != null)
 						projectInfo.Dependencies [info.Guid] = info;
 				}
+
+				// unload the project after reading info from it
+				// it'll be reloaded with proper context when building the solution
+				p.ParentEngine.UnloadProject (currentProject);
 			}
 
 			// fill in the project info for deps found in the .sln file

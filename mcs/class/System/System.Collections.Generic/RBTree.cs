@@ -114,17 +114,8 @@ namespace System.Collections.Generic
 		uint version;
 
 #if ONE_MEMBER_CACHE
-#if TARGET_JVM
-		static readonly LocalDataStoreSlot _cachedPathStore = System.Threading.Thread.AllocateDataSlot ();
-
-		static List<Node> cached_path {
-			get { return (List<Node>) System.Threading.Thread.GetData (_cachedPathStore); }
-			set { System.Threading.Thread.SetData (_cachedPathStore, value); }
-		}
-#else
 		[ThreadStatic]
 		static List<Node> cached_path;
-#endif
 
 		static List<Node> alloc_path ()
 		{
@@ -693,8 +684,8 @@ namespace System.Collections.Generic
 			internal void check_current ()
 			{
 				check_version ();
-				if (pennants == null)
-					throw new InvalidOperationException ("state invalid before the first MoveNext()");
+				if (pennants == null || pennants.Count == 0)
+					throw new InvalidOperationException ("Enumerator is before the first element or after the last element");
 			}
 		}
 	}

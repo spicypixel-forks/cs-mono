@@ -237,11 +237,7 @@ throw_exception (MonoObject *exc, unsigned long ip, unsigned long sp,
 {
 	MonoContext ctx;
 	int iReg;
-	static void (*restore_context) (MonoContext *);
 
-	if (!restore_context)
-		restore_context = mono_get_restore_context();
-	
 	memset(&ctx, 0, sizeof(ctx));
 
 	setup_context(&ctx);
@@ -267,7 +263,7 @@ throw_exception (MonoObject *exc, unsigned long ip, unsigned long sp,
 	}
 //	mono_arch_handle_exception (&ctx, exc, FALSE);
 	mono_handle_exception (&ctx, exc);
-	restore_context(&ctx);
+	mono_restore_context(&ctx);
 
 	g_assert_not_reached ();
 }
@@ -476,32 +472,19 @@ mono_arch_find_jit_info (MonoDomain *domain, MonoJitTlsData *jit_tls,
 
 		frame->type = FRAME_TYPE_MANAGED;
 
-		if (ji->from_aot)
-			unwind_info = mono_aot_get_unwind_info(ji, &unwind_info_len);
-		else
-			unwind_info = mono_get_cached_unwind_info(ji->used_regs, &unwind_info_len);
-
-		if (*lmf && ((*lmf) != jit_tls->first_lmf) && 
-		    (MONO_CONTEXT_GET_SP (ctx) >= (gpointer)(*lmf)->ebp)) {
-			/* remove any unused lmf */
-			*lmf = (*lmf)->previous_lmf;
-		}
+		unwind_info = mono_jinfo_get_unwind_info (ji, &unwind_info_len);
 
 		address = (char *)ip - (char *)ji->code_start;
 
 		memcpy(&regs, &ctx->uc_mcontext.gregs, sizeof(regs));
 		mono_unwind_frame (unwind_info, unwind_info_len, ji->code_start,
-				(guint8 *) ji->code_start + ji->code_size,
-				ip, regs, 16, save_locations, 
-				MONO_MAX_IREGS, &cfa);
+						   (guint8 *) ji->code_start + ji->code_size,
+						   ip, NULL, regs, 16, save_locations,
+						   MONO_MAX_IREGS, &cfa);
 		memcpy (&new_ctx->uc_mcontext.gregs, &regs, sizeof(regs));
 		MONO_CONTEXT_SET_IP(new_ctx, regs[14] - 2);
 		MONO_CONTEXT_SET_BP(new_ctx, cfa);
 	
-		if (*lmf && (MONO_CONTEXT_GET_SP (ctx) >= (gpointer)(*lmf)->ebp)) {
-			/* remove any unused lmf */
-			*lmf = (*lmf)->previous_lmf;
-		}
 		return TRUE;
 	} else if (*lmf) {
 

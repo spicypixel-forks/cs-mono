@@ -125,34 +125,36 @@ namespace MonoTests.System.Text
 		}
 
 		[Test]
-#if NET_2_0
-		[Category ("NotWorking")]
-#endif
 		public void TestMaxCharCount()
 		{
 			UTF8Encoding UTF8enc = new UTF8Encoding ();
-#if NET_2_0
-			// hmm, where is this extra 1 coming from?
+			Encoding UTF8encWithBOM = new UTF8Encoding(true);
 			Assert.AreEqual (51, UTF8enc.GetMaxCharCount(50), "UTF #1");
-#else
-			Assert.AreEqual (50, UTF8enc.GetMaxCharCount(50), "UTF #1");
-#endif
+			Assert.AreEqual (UTF8enc.GetMaxByteCount(50), UTF8encWithBOM.GetMaxByteCount(50), "UTF #2");
 		}
 
 		[Test]
-#if NET_2_0
-		[Category ("NotWorking")]
-#endif
+		public void TestMaxCharCountWithCustomFallback()
+		{
+			Encoding encoding = Encoding.GetEncoding("utf-8", new EncoderReplacementFallback("\u2047\u2047"), new DecoderReplacementFallback("\u2047\u2047"));
+			Assert.AreEqual (102, encoding.GetMaxCharCount(50), "UTF #1");
+		}
+
+		[Test]
 		public void TestMaxByteCount()
 		{
 			UTF8Encoding UTF8enc = new UTF8Encoding ();
-#if NET_2_0
-			// maybe under .NET 2.0 insufficient surrogate pair is
-			// just not handled, and 3 is Preamble size.
+			Encoding UTF8encWithBOM = new UTF8Encoding(true);
+
 			Assert.AreEqual (153, UTF8enc.GetMaxByteCount(50), "UTF #1");
-#else
-			Assert.AreEqual (200, UTF8enc.GetMaxByteCount(50), "UTF #1");
-#endif
+			Assert.AreEqual (UTF8enc.GetMaxByteCount(50), UTF8encWithBOM.GetMaxByteCount(50), "UTF #2");
+		}
+
+		[Test]
+		public void TestMaxByteCountWithCustomFallback()
+		{
+			Encoding encoding = Encoding.GetEncoding("utf-8", new EncoderReplacementFallback("\u2047\u2047"), new DecoderReplacementFallback("?"));
+			Assert.AreEqual (306, encoding.GetMaxByteCount(50), "UTF #1");
 		}
 
 		// regression for bug #59648
@@ -1195,6 +1197,89 @@ namespace MonoTests.System.Text
 
 			int charactersWritten = Encoding.UTF8.GetDecoder ().GetChars (bytes, 0, 0, chars, 10, false);
 			Assert.AreEqual (0, charactersWritten, "#3");
+		}
+
+		[Test]
+		public void EncodingFallback ()
+		{
+		/*  Legal UTF-8 Byte Sequences
+			 *	1st		2nd		3rd		4th
+			 *	00..7F
+			 *	C2..DF	80..BF
+			 *	E0		A0..BF	80..BF
+			 *	E1..EF  80..BF	80..BF
+			 *	F0		90..BF	80..BF	80..BF
+			 *	F1..F3	80..BF	80..BF	80..BF
+			 *	F4		80..8F	80..BF	80..BF
+			 */
+
+			var t = new EncodingTester ("utf-8");
+			byte [] data;
+
+			// Invalid 1st byte
+			for (byte b = 0x80; b <= 0xC1; b++)	{
+				data = new byte [] { b };
+				t.TestDecoderFallback (data, "?", new byte [] { b });
+			}
+
+			///Invalid 2nd byte
+			//	C2..DF	80..BF
+			for (byte b = 0xC2; b <= 0xDF; b++)	{
+				data = new byte [] { b, 0x61 };
+				t.TestDecoderFallback (data, "?a", new byte [] { b });
+			}
+
+			//	E0		A0..BF
+			data =  new byte [] { 0xE0, 0x99};
+			t.TestDecoderFallback (data, "?", new byte [] { 0xE0,  0x99});
+
+			//	E1..EF  80..BF
+			for (byte b = 0xE1; b <= 0xEF; b++)	{
+				data = new byte [] { b, 0x61 };
+				t.TestDecoderFallback (data, "?a", new byte [] { b });
+			}
+
+			//	F0		90..BF
+			data =  new byte [] { 0xF0, 0x8F};
+			t.TestDecoderFallback (data, "?", new byte [] { 0xF0, 0x8F });
+
+			//	F1..F4	80..XX
+			for (byte b = 0xF1; b <= 0xF4; b++)	{
+				data = new byte [] { b, 0x61 };
+				t.TestDecoderFallback (data, "?a", new byte [] { b });
+			}
+
+			//	C2..F3	XX..BF
+			for (byte b = 0xC2; b <= 0xF3; b++)	{
+				data = new byte [] { b, 0xC0 };
+				t.TestDecoderFallback (data, "??", new byte [] { b }, new byte [] { 0xC0 });
+			}
+
+			// Invalid 3rd byte
+			//	E0..F3	90..BF	80..BF
+			for (byte b = 0xE0; b <= 0xF3; b++)	{
+				data = new byte [] { b, 0xB0, 0x61 };
+				t.TestDecoderFallback (data, "?a", new byte [] { b, 0xB0 });
+				data = new byte [] { b, 0xB0, 0xC0 };
+				t.TestDecoderFallback (data, "??", new byte [] { b, 0xB0 }, new byte [] { 0xC0 });
+			}
+
+			//	F4		80..8F	80..BF
+			data = new byte [] { 0xF4, 0x8F, 0xC0 };
+			t.TestDecoderFallback (data, "??", new byte [] { 0xF4, 0x8F }, new byte [] { 0xC0 });
+
+			// Invalid 4th byte
+			//	F0..F3	90..BF	80..BF	80..BF
+			for (byte b = 0xF0; b <= 0xF3; b++)	{
+				data = new byte [] { b, 0xB0, 0xB0, 0x61 };
+				t.TestDecoderFallback (data, "?a", new byte [] { b, 0xB0, 0xB0 });
+				data = new byte [] { b, 0xB0, 0xB0, 0xC0 };
+				t.TestDecoderFallback (data, "??", new byte [] { b, 0xB0, 0xB0 }, new byte [] { 0xC0 });
+			}
+
+			//	F4		80..8F	80..BF 80..BF
+			data = new byte [] { 0xF4, 0x8F, 0xB0, 0xC0 };
+			t.TestDecoderFallback (data, "??", new byte [] { 0xF4, 0x8F, 0xB0 }, new byte [] { 0xC0 });
 		}
 	}
 }

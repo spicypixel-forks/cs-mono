@@ -17,7 +17,7 @@
 #endif
 
 #include "jit-icalls.h"
-
+#include <mono/utils/mono-error-internals.h>
 void*
 mono_ldftn (MonoMethod *method)
 {
@@ -82,7 +82,7 @@ mono_helper_stelem_ref_check (MonoArray *array, MonoObject *val)
 		mono_raise_exception (mono_get_exception_array_type_mismatch ());
 }
 
-#ifndef MONO_ARCH_NO_EMULATE_LONG_MUL_OPTS
+#if !defined(MONO_ARCH_NO_EMULATE_LONG_MUL_OPTS) || defined(MONO_ARCH_EMULATE_LONG_MUL_OVF_OPTS)
 
 gint64 
 mono_llmult (gint64 a, gint64 b)
@@ -996,8 +996,7 @@ mono_helper_compile_generic_method (MonoObject *obj, MonoMethod *method, gpointe
 
 	addr = mono_compile_method (vmethod);
 
-	if (mono_method_needs_static_rgctx_invoke (vmethod, FALSE))
-		addr = mono_create_static_rgctx_trampoline (vmethod, addr);
+	addr = mini_add_method_trampoline (NULL, vmethod, addr, mono_method_needs_static_rgctx_invoke (vmethod, FALSE), FALSE);
 
 	/* Since this is a virtual call, have to unbox vtypes */
 	if (obj->vtable->klass->valuetype)
@@ -1023,9 +1022,9 @@ mono_helper_ldstr_mscorlib (guint32 idx)
 MonoObject*
 mono_helper_newobj_mscorlib (guint32 idx)
 {
-	MonoClass *klass = mono_class_get (mono_defaults.corlib, MONO_TOKEN_TYPE_DEF | idx);
-	
-	g_assert (klass);
+	MonoError error;
+	MonoClass *klass = mono_class_get_checked (mono_defaults.corlib, MONO_TOKEN_TYPE_DEF | idx, &error);
+	mono_error_raise_exception (&error);
 
 	return mono_object_new (mono_domain_get (), klass);
 }
@@ -1062,6 +1061,7 @@ MonoObject*
 mono_object_castclass_unbox (MonoObject *obj, MonoClass *klass)
 {
 	MonoJitTlsData *jit_tls = NULL;
+	MonoClass *oklass;
 
 	if (mini_get_debug_options ()->better_cast_details) {
 		jit_tls = mono_native_tls_get_value (mono_jit_tls_id);
@@ -1071,13 +1071,14 @@ mono_object_castclass_unbox (MonoObject *obj, MonoClass *klass)
 	if (!obj)
 		return NULL;
 
-	if (klass->enumtype && obj->vtable->klass == klass->element_class)
+	oklass = obj->vtable->klass;
+	if ((klass->enumtype && oklass == klass->element_class) || (oklass->enumtype && klass == oklass->element_class))
 		return obj;
 	if (mono_object_isinst (obj, klass))
 		return obj;
 
 	if (mini_get_debug_options ()->better_cast_details) {
-		jit_tls->class_cast_from = obj->vtable->klass;
+		jit_tls->class_cast_from = oklass;
 		jit_tls->class_cast_to = klass;
 	}
 

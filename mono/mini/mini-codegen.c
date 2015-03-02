@@ -101,6 +101,7 @@ static const int regbank_move_ops [] = {
 
 #define regmask(reg) (((regmask_t)1) << (reg))
 
+#ifdef MONO_ARCH_USE_SHARED_FP_SIMD_BANK
 static const regmask_t regbank_callee_saved_regs [] = {
 	MONO_ARCH_CALLEE_SAVED_REGS,
 	MONO_ARCH_CALLEE_SAVED_FREGS,
@@ -108,6 +109,7 @@ static const regmask_t regbank_callee_saved_regs [] = {
 	MONO_ARCH_CALLEE_SAVED_REGS,
 	MONO_ARCH_CALLEE_SAVED_XREGS,
 };
+#endif
 
 static const regmask_t regbank_callee_regs [] = {
 	MONO_ARCH_CALLEE_REGS,
@@ -453,9 +455,22 @@ mono_print_ins_index (int i, MonoInst *ins)
 	else
 		printf (" %s", mono_inst_name (ins->opcode));
 	if (spec == MONO_ARCH_CPU_SPEC) {
+		gboolean dest_base = FALSE;
+		switch (ins->opcode) {
+		case OP_STOREV_MEMBASE:
+			dest_base = TRUE;
+			break;
+		default:
+			break;
+		}
+
 		/* This is a lowered opcode */
-		if (ins->dreg != -1)
-			printf (" R%d <-", ins->dreg);
+		if (ins->dreg != -1) {
+			if (dest_base)
+				printf (" [R%d + 0x%lx] <-", ins->dreg, (long)ins->inst_offset);
+			else
+				printf (" R%d <-", ins->dreg);
+		}
 		if (ins->sreg1 != -1)
 			printf (" R%d", ins->sreg1);
 		if (ins->sreg2 != -1)
@@ -584,11 +599,8 @@ mono_print_ins_index (int i, MonoInst *ins)
 	case OP_CALL_MEMBASE:
 	case OP_CALL_REG:
 	case OP_FCALL:
-	case OP_FCALLVIRT:
 	case OP_LCALL:
-	case OP_LCALLVIRT:
 	case OP_VCALL:
-	case OP_VCALLVIRT:
 	case OP_VCALL_REG:
 	case OP_VCALL_MEMBASE:
 	case OP_VCALL2:
@@ -596,7 +608,6 @@ mono_print_ins_index (int i, MonoInst *ins)
 	case OP_VCALL2_MEMBASE:
 	case OP_VOIDCALL:
 	case OP_VOIDCALL_MEMBASE:
-	case OP_VOIDCALLVIRT:
 	case OP_TAILCALL: {
 		MonoCallInst *call = (MonoCallInst*)ins;
 		GSList *list;
@@ -1054,8 +1065,9 @@ assign_reg (MonoCompile *cfg, MonoRegState *rs, int reg, int hreg, int bank)
 	else {
 		g_assert (reg >= MONO_MAX_IREGS);
 		g_assert (hreg < MONO_MAX_IREGS);
-#ifndef TARGET_ARM
+#if !defined(TARGET_ARM) && !defined(TARGET_ARM64)
 		/* this seems to trigger a gcc compilation bug sometime (hreg is 0) */
+		/* On arm64, rgctx_reg is a global hreg, and it is used to pass an argument */
 		g_assert (! is_global_ireg (hreg));
 #endif
 
@@ -1113,7 +1125,7 @@ mono_local_regalloc (MonoCompile *cfg, MonoBasicBlock *bb)
 		desc_to_fixed_reg_inited = TRUE;
 
 		/* Validate the cpu description against the info in mini-ops.h */
-#if defined(TARGET_AMD64) || defined(TARGET_X86) || defined(TARGET_ARM)
+#if defined(TARGET_AMD64) || defined(TARGET_X86) || defined(TARGET_ARM) || defined(TARGET_ARM64)
 		for (i = OP_LOAD; i < OP_LAST; ++i) {
 			const char *ispec;
 
@@ -1161,6 +1173,8 @@ mono_local_regalloc (MonoCompile *cfg, MonoBasicBlock *bb)
 	 * bblock.
 	 */
 	for (ins = bb->code; ins; ins = ins->next) {
+		gboolean modify = FALSE;
+
 		spec = ins_get_spec (ins->opcode);
 
 		if ((ins->dreg != -1) && (ins->dreg < max)) {
@@ -1186,12 +1200,14 @@ mono_local_regalloc (MonoCompile *cfg, MonoBasicBlock *bb)
 #if SIZEOF_REGISTER == 4
 				if (MONO_ARCH_INST_IS_REGPAIR (spec [MONO_INST_SRC1 + j])) {
 					sregs [j]++;
+					modify = TRUE;
 					memset (&reginfo [sregs [j] + 1], 0, sizeof (RegTrack));
 				}
 #endif
 			}
 		}
-		mono_inst_set_src_registers (ins, sregs);
+		if (modify)
+			mono_inst_set_src_registers (ins, sregs);
 	}
 
 	/*if (cfg->opt & MONO_OPT_COPYPROP)
@@ -1440,6 +1456,8 @@ mono_local_regalloc (MonoCompile *cfg, MonoBasicBlock *bb)
 						if (k != j)
 							sreg_masks [k] &= ~ (regmask (dest_sreg));
 					}
+					/* See below */
+					dreg_mask &= ~ (regmask (dest_sreg));
 				} else {
 					val = rs->vassign [sreg];
 					if (val == -1) {
@@ -1459,7 +1477,7 @@ mono_local_regalloc (MonoCompile *cfg, MonoBasicBlock *bb)
 								sreg_masks [k] &= ~ (regmask (dest_sreg));
 						}
 						/* 
-						 * Prevent the dreg from being allocate to dest_sreg 
+						 * Prevent the dreg from being allocated to dest_sreg
 						 * too, since it could force sreg1 to be allocated to 
 						 * the same reg on x86.
 						 */
@@ -1790,7 +1808,7 @@ mono_local_regalloc (MonoCompile *cfg, MonoBasicBlock *bb)
 							continue;
 
 						s = regmask (j);
-						if ((clob_mask & s) && !(rs->free_mask [cur_bank] & s) && (j != ins->sreg1)) {
+						if ((clob_mask & s) && !(rs->free_mask [cur_bank] & s)) {
 							if (j != dreg)
 								free_up_hreg (cfg, bb, tmp, ins, j, cur_bank);
 							else if (rs->symbolic [cur_bank] [j])
@@ -2341,6 +2359,8 @@ mono_opcode_to_cond (int opcode)
 	case OP_CMOV_IEQ:
 	case OP_CMOV_LEQ:
 		return CMP_EQ;
+	case OP_FCNEQ:
+	case OP_ICNEQ:
 	case OP_IBNE_UN:
 	case OP_LBNE_UN:
 	case OP_FBNE_UN:
@@ -2349,12 +2369,16 @@ mono_opcode_to_cond (int opcode)
 	case OP_CMOV_INE_UN:
 	case OP_CMOV_LNE_UN:
 		return CMP_NE;
+	case OP_FCLE:
+	case OP_ICLE:
 	case OP_IBLE:
 	case OP_LBLE:
 	case OP_FBLE:
 	case OP_CMOV_ILE:
 	case OP_CMOV_LLE:
 		return CMP_LE;
+	case OP_FCGE:
+	case OP_ICGE:
 	case OP_IBGE:
 	case OP_LBGE:
 	case OP_FBGE:
@@ -2386,6 +2410,7 @@ mono_opcode_to_cond (int opcode)
 	case OP_CMOV_LGT:
 		return CMP_GT;
 
+	case OP_ICLE_UN:
 	case OP_IBLE_UN:
 	case OP_LBLE_UN:
 	case OP_FBLE_UN:
@@ -2394,6 +2419,8 @@ mono_opcode_to_cond (int opcode)
 	case OP_CMOV_ILE_UN:
 	case OP_CMOV_LLE_UN:
 		return CMP_LE_UN;
+
+	case OP_ICGE_UN:
 	case OP_IBGE_UN:
 	case OP_LBGE_UN:
 	case OP_FBGE_UN:
@@ -2695,6 +2722,29 @@ mono_peephole_ins (MonoBasicBlock *bb, MonoInst *ins)
 		MONO_DELETE_INS (bb, ins);
 		break;
 	}
+}
+
+int
+mini_exception_id_by_name (const char *name)
+{
+	if (strcmp (name, "IndexOutOfRangeException") == 0)
+		return MONO_EXC_INDEX_OUT_OF_RANGE;
+	if (strcmp (name, "OverflowException") == 0)
+		return MONO_EXC_OVERFLOW;
+	if (strcmp (name, "ArithmeticException") == 0)
+		return MONO_EXC_ARITHMETIC;
+	if (strcmp (name, "DivideByZeroException") == 0)
+		return MONO_EXC_DIVIDE_BY_ZERO;
+	if (strcmp (name, "InvalidCastException") == 0)
+		return MONO_EXC_INVALID_CAST;
+	if (strcmp (name, "NullReferenceException") == 0)
+		return MONO_EXC_NULL_REF;
+	if (strcmp (name, "ArrayTypeMismatchException") == 0)
+		return MONO_EXC_ARRAY_TYPE_MISMATCH;
+	if (strcmp (name, "ArgumentException") == 0)
+		return MONO_EXC_ARGUMENT;
+	g_error ("Unknown intrinsic exception %s\n", name);
+	return -1;
 }
 
 #endif /* DISABLE_JIT */

@@ -242,13 +242,20 @@ namespace System.ComponentModel {
 			if (raise_list_changed_events)
 				OnListChanged (new ListChangedEventArgs (ListChangedType.ItemAdded, index));
 
-			if (type_raises_item_changed_events)
+			if (item != null && type_raises_item_changed_events)
 				(item as INotifyPropertyChanged).PropertyChanged += Item_PropertyChanged;
 		}
 
 		void Item_PropertyChanged (object item, PropertyChangedEventArgs args)
 		{
-			OnListChanged (new ListChangedEventArgs (ListChangedType.ItemChanged, base.IndexOf ((T) item)) );
+			var property_info = item.GetType ().GetProperty (args.PropertyName);
+
+			if (property_info != null) {
+				OnListChanged (new ListChangedEventArgs (ListChangedType.ItemChanged, base.IndexOf ((T) item),
+							new ReflectionPropertyDescriptor (property_info)) );
+			} else {
+				OnListChanged (new ListChangedEventArgs (ListChangedType.ItemChanged, base.IndexOf ((T) item)) );
+			}
 		}
 
 		protected virtual void OnAddingNew (AddingNewEventArgs e)

@@ -87,10 +87,12 @@ mono_exception_from_name_domain (MonoDomain *domain, MonoImage *image,
 MonoException *
 mono_exception_from_token (MonoImage *image, guint32 token)
 {
+	MonoError error;
 	MonoClass *klass;
 	MonoObject *o;
 
-	klass = mono_class_get (image, token);
+	klass = mono_class_get_checked (image, token, &error);
+	g_assert (mono_error_ok (&error)); /* FIXME handle the error. */
 
 	o = mono_object_new (mono_domain_get (), klass);
 	g_assert (o != NULL);
@@ -197,7 +199,9 @@ MonoException *
 mono_exception_from_token_two_strings (MonoImage *image, guint32 token,
 									   MonoString *a1, MonoString *a2)
 {
-	MonoClass *klass = mono_class_get (image, token);
+	MonoError error;
+	MonoClass *klass = mono_class_get_checked (image, token, &error);
+	g_assert (mono_error_ok (&error)); /* FIXME handle the error. */
 
 	return create_exception_two_strings (klass, a1, a2);
 }
@@ -831,7 +835,7 @@ mono_exception_get_native_backtrace (MonoException *exc)
 		gpointer ip = mono_array_get (arr, gpointer, i);
 		MonoJitInfo *ji = mono_jit_info_table_find (mono_domain_get (), ip);
 		if (ji) {
-			char *msg = mono_debug_print_stack_frame (ji->method, (char*)ip - (char*)ji->code_start, domain);
+			char *msg = mono_debug_print_stack_frame (mono_jit_info_get_method (ji), (char*)ip - (char*)ji->code_start, domain);
 			g_string_append_printf (text, "%s\n", msg);
 			g_free (msg);
 		} else {

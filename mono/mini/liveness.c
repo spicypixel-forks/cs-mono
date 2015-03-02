@@ -219,7 +219,8 @@ analyze_liveness_bb (MonoCompile *cfg, MonoBasicBlock *bb)
 	MonoMethodVar *vars = cfg->vars;
 	guint32 abs_pos = (bb->dfn << 16);
 	
-	for (inst_num = 0, ins = bb->code; ins; ins = ins->next, inst_num += 2) {
+	/* Start inst_num from > 0, so last_use.abs_pos is only 0 for dead variables */
+	for (inst_num = 2, ins = bb->code; ins; ins = ins->next, inst_num += 2) {
 		const char *spec = INS_INFO (ins->opcode);
 		int num_sregs, i;
 		int sregs [MONO_MAX_SRC_REGS];
@@ -811,9 +812,7 @@ update_liveness2 (MonoCompile *cfg, MonoInst *ins, gboolean set_volatile, int in
 				/* Try dead code elimination */
 				if ((var != cfg->ret) && !(var->flags & (MONO_INST_VOLATILE|MONO_INST_INDIRECT)) && ((ins->opcode == OP_ICONST) || (ins->opcode == OP_I8CONST) || (ins->opcode == OP_R8CONST)) && !(var->flags & MONO_INST_VOLATILE)) {
 					LIVENESS_DEBUG (printf ("\tdead def of R%d, eliminated\n", ins->dreg));
-					ins->opcode = OP_NOP;
-					ins->dreg = -1;
-					MONO_INST_NULLIFY_SREGS (ins);
+					NULLIFY_INS (ins);
 					return;
 				}
 

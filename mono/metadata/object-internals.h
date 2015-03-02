@@ -194,6 +194,27 @@ struct _MonoString {
 #define mono_array_length_fast(array) ((array)->max_length)
 #define mono_array_addr_with_size_fast(array,size,index) ( ((char*)(array)->vector) + (size) * (index) )
 
+#define mono_array_addr_fast(array,type,index) ((type*)(void*) mono_array_addr_with_size_fast (array, sizeof (type), index))
+#define mono_array_get_fast(array,type,index) ( *(type*)mono_array_addr_fast ((array), type, (index)) ) 
+#define mono_array_set_fast(array,type,index,value)	\
+	do {	\
+		type *__p = (type *) mono_array_addr_fast ((array), type, (index));	\
+		*__p = (value);	\
+	} while (0)
+#define mono_array_setref_fast(array,index,value)	\
+	do {	\
+		void **__p = (void **) mono_array_addr_fast ((array), void*, (index));	\
+		mono_gc_wbarrier_set_arrayref ((array), __p, (MonoObject*)(value));	\
+		/* *__p = (value);*/	\
+	} while (0)
+#define mono_array_memcpy_refs_fast(dest,destidx,src,srcidx,count)	\
+	do {	\
+		void **__p = (void **) mono_array_addr_fast ((dest), void*, (destidx));	\
+		void **__s = mono_array_addr_fast ((src), void*, (srcidx));	\
+		mono_gc_wbarrier_arrayref_copy (__p, __s, (count));	\
+	} while (0)
+
+
 typedef struct {
 	MonoObject obj;
 	MonoObject *identity;
@@ -398,7 +419,7 @@ struct _MonoInternalThread {
 	gpointer suspend_event;
 	gpointer suspended_event;
 	gpointer resume_event;
-	CRITICAL_SECTION *synch_cs;
+	mono_mutex_t *synch_cs;
 	MonoBoolean threadpool_thread;
 	MonoBoolean thread_dump_requested;
 	MonoBoolean thread_interrupt_requested;
@@ -575,6 +596,7 @@ typedef struct {
 	void     (*set_cast_details) (MonoClass *from, MonoClass *to);
 	void     (*debug_log) (int level, MonoString *category, MonoString *message);
 	gboolean (*debug_log_is_enabled) (void);
+	gboolean (*tls_key_supported) (MonoTlsKey key);
 } MonoRuntimeCallbacks;
 
 typedef gboolean (*MonoInternalStackWalk) (MonoStackFrameInfo *frame, MonoContext *ctx, gpointer data);
@@ -626,7 +648,7 @@ void
 mono_method_return_message_restore (MonoMethod *method, gpointer *params, MonoArray *out_args) MONO_INTERNAL;
 
 void
-mono_delegate_ctor_with_method (MonoObject *this, MonoObject *target, gpointer addr, MonoMethod *method) MONO_INTERNAL;
+mono_delegate_ctor_with_method (MonoObject *this_obj, MonoObject *target, gpointer addr, MonoMethod *method) MONO_INTERNAL;
 
 void
 mono_delegate_ctor	    (MonoObject *this_obj, MonoObject *target, gpointer addr) MONO_INTERNAL;
@@ -1369,6 +1391,7 @@ guint32       mono_image_create_method_token (MonoDynamicImage *assembly, MonoOb
 void          mono_image_module_basic_init (MonoReflectionModuleBuilder *module) MONO_INTERNAL;
 void          mono_image_register_token (MonoDynamicImage *assembly, guint32 token, MonoObject *obj) MONO_INTERNAL;
 void          mono_dynamic_image_free (MonoDynamicImage *image) MONO_INTERNAL;
+void          mono_dynamic_image_free_image (MonoDynamicImage *image) MONO_INTERNAL;
 void          mono_image_set_wrappers_type (MonoReflectionModuleBuilder *mb, MonoReflectionType *type) MONO_INTERNAL;
 void          mono_dynamic_image_release_gc_roots (MonoDynamicImage *image) MONO_INTERNAL;
 
@@ -1454,7 +1477,7 @@ void
 mono_array_full_copy (MonoArray *src, MonoArray *dest) MONO_INTERNAL;
 
 gboolean
-mono_array_calc_byte_len (MonoClass *class, uintptr_t len, uintptr_t *res) MONO_INTERNAL;
+mono_array_calc_byte_len (MonoClass *klass, uintptr_t len, uintptr_t *res) MONO_INTERNAL;
 
 #ifndef DISABLE_REMOTING
 MonoObject *
@@ -1545,7 +1568,7 @@ void
 mono_runtime_unhandled_exception_policy_set (MonoRuntimeUnhandledExceptionPolicy policy) MONO_INTERNAL;
 
 MonoVTable *
-mono_class_try_get_vtable (MonoDomain *domain, MonoClass *class) MONO_INTERNAL;
+mono_class_try_get_vtable (MonoDomain *domain, MonoClass *klass) MONO_INTERNAL;
 
 MonoException *
 mono_runtime_class_init_full (MonoVTable *vtable, gboolean raise_exception) MONO_INTERNAL;
@@ -1554,16 +1577,16 @@ void
 mono_method_clear_object (MonoDomain *domain, MonoMethod *method) MONO_INTERNAL;
 
 void
-mono_class_compute_gc_descriptor (MonoClass *class) MONO_INTERNAL;
+mono_class_compute_gc_descriptor (MonoClass *klass) MONO_INTERNAL;
 
 gsize*
-mono_class_compute_bitmap (MonoClass *class, gsize *bitmap, int size, int offset, int *max_set, gboolean static_fields) MONO_INTERNAL;
+mono_class_compute_bitmap (MonoClass *klass, gsize *bitmap, int size, int offset, int *max_set, gboolean static_fields) MONO_INTERNAL;
 
 MonoObject*
 mono_object_xdomain_representation (MonoObject *obj, MonoDomain *target_domain, MonoObject **exc) MONO_INTERNAL;
 
 gboolean
-mono_class_is_reflection_method_or_constructor (MonoClass *class) MONO_INTERNAL;
+mono_class_is_reflection_method_or_constructor (MonoClass *klass) MONO_INTERNAL;
 
 MonoObject *
 mono_get_object_from_blob (MonoDomain *domain, MonoType *type, const char *blob) MONO_INTERNAL;

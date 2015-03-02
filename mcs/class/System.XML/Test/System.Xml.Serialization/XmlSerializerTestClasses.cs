@@ -432,6 +432,7 @@ namespace MonoTests.System.Xml.TestClasses
 	public class ReadOnlyProperties
 	{
 		string[] strArr = new string[2] { "string1", "string2" };
+		List<string> strList = new List<string> { "listString1" };
 
 		public string[] StrArr
 		{
@@ -442,7 +443,20 @@ namespace MonoTests.System.Xml.TestClasses
 		{
 			get { return "fff"; }
 		}
+
+		public IList<string> StrList { get { return strList; } }
 	}
+
+	[Serializable]
+	public class ReadOnlyListProperty {
+		List<string> strList = new List<string> { "listString1", "listString2" };
+
+		public List<string> StrList
+		{
+			get { return strList; }
+		}
+	}
+
 
 	[XmlRoot ("root")]
 	public class ListDefaults
@@ -1103,5 +1117,83 @@ namespace MonoTests.System.Xml.TestClasses
 		[XmlElement ("Extra", Order=1)]
 		public string[] Extra;
 	}
+
+	public class SimpleObjectA
+	{
+		[XmlAttribute]
+		public string Text
+		{
+			get; set;
+		}
+
+		public static implicit operator SimpleObjectA (SimpleObjectB o)
+		{
+			return new SimpleObjectA { Text = o.Text };
+		}
+
+		public static implicit operator SimpleObjectB (SimpleObjectA o)
+		{
+		 return new SimpleObjectB { Text = o.Text };
+		}
+	}
+
+	public class SimpleObjectB
+	{
+		[XmlAttribute]
+		public string Text
+		{
+			get; set;
+		}
+	}
+
+	public class ObjectWithElementRequiringImplicitCast
+	{
+		public ObjectWithElementRequiringImplicitCast () { }
+		public ObjectWithElementRequiringImplicitCast (string text)
+		{
+			Object = new SimpleObjectB { Text = text };
+		}
+
+		[XmlElement(Type = typeof (SimpleObjectA))]
+		public SimpleObjectB Object
+		{
+			get; set;
+		}
+	}
+
+	public class ObjectWithNullableArrayItems
+	{
+		[XmlArrayItem ("Element", IsNullable = true)]
+		public List<SimpleClass> Elements;
+	}
+
+	public class ObjectWithNonNullableArrayItems
+	{
+		[XmlArrayItem ("Element", IsNullable = false)]
+		public List<SimpleClass> Elements;
+	}
+
+	public class ObjectWithNotSpecifiedNullableArrayItems
+	{
+		[XmlArrayItem ("Element")]
+		public List<SimpleClass> Elements;
+	}
+
+	[Serializable]
+	public sealed class ClassWithDefaultTextNotNull
+	{
+		[XmlText]
+		public string Value;
+
+		public const string DefaultValue = "NotNull";
+
+		public ClassWithDefaultTextNotNull (string v) {
+			Value = v;
+		}
+
+		public ClassWithDefaultTextNotNull () {
+			Value = DefaultValue;
+		}
+    }
 }
 

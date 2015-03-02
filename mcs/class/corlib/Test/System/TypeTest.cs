@@ -141,6 +141,12 @@ namespace MonoTests.System
 			get { return 1; }
 			set { }
 		}
+
+		public event EventHandler E;
+		public void Dummy ()
+		{
+			E += delegate {};
+		}
 	}
 
 	class Derived1 : Base1
@@ -155,6 +161,12 @@ namespace MonoTests.System
 		public new int Foo {
 			get { return 1; }
 			set { }
+		}
+
+		public new event Action E;
+		public new void Dummy ()
+		{
+			E += delegate {};
 		}
 	}
 
@@ -293,16 +305,11 @@ namespace MonoTests.System
 			Assert.AreEqual (typeof (ICloneable[][]).IsAssignableFrom (typeof (Duper[][])), true, "#12");
 
 			// Tests for vectors<->one dimensional arrays */
-#if TARGET_JVM // Lower bounds arrays are not supported for TARGET_JVM.
-			Array arr1 = Array.CreateInstance (typeof (int), new int[] {1});
-			Assert.AreEqual (typeof (int[]).IsAssignableFrom (arr1.GetType ()), true, "#13");
-#else
 			Array arr1 = Array.CreateInstance (typeof (int), new int[] {1}, new int[] {0});
 			Array arr2 = Array.CreateInstance (typeof (int), new int[] {1}, new int[] {10});
 
 			Assert.AreEqual (typeof (int[]).IsAssignableFrom (arr1.GetType ()), true, "#13");
 			Assert.AreEqual (typeof (int[]).IsAssignableFrom (arr2.GetType ()), false, "#14");
-#endif // TARGET_JVM
 
 			// Test that arrays of enums can be cast to their base types
 			Assert.AreEqual (typeof (int[]).IsAssignableFrom (typeof (TypeCode[])), true, "#15");
@@ -386,7 +393,6 @@ namespace MonoTests.System
 		}
 
 		[Test]
-		[Category ("TargetJvmNotWorking")]
 		public void TestGetPropertyImpl ()
 		{
 			// Test getting property that is exact
@@ -397,6 +403,14 @@ namespace MonoTests.System
 
 			// Test overriding of properties when only the set accessor is overriden
 			Assert.AreEqual (1, typeof (Derived1).GetProperties ().Length, "#03");
+		}
+
+		[Test]
+		public void GetEvents ()
+		{
+			// Test hide-by-name
+			Assert.AreEqual (1, typeof (Derived2).GetEvents ().Length);
+			Assert.AreEqual (typeof (Derived2), typeof (Derived2).GetEvents ()[0].DeclaringType);
 		}
 
 		[Test]
@@ -1505,7 +1519,6 @@ namespace MonoTests.System
 							    typeof (long), new Type[0], null), "#2");
 		}
 
-#if !TARGET_JVM // StructLayout not supported for TARGET_JVM
 		[StructLayout(LayoutKind.Explicit, Pack = 4, Size = 64)]
 		public class Class1
 		{
@@ -1531,7 +1544,6 @@ namespace MonoTests.System
 			Assert.AreEqual (LayoutKind.Explicit, attr3.Value);
 			Assert.AreEqual (CharSet.Unicode, attr3.CharSet);
 		}
-#endif // TARGET_JVM
 
 		[Test]
 		public void Namespace ()
@@ -1856,7 +1868,9 @@ PublicKeyToken=b77a5c561934e089"));
 
 		struct B
 		{
+			#pragma warning disable 169
 			int value;
+			#pragma warning restore 169
 		}
 
 		[Test]
@@ -2149,7 +2163,7 @@ PublicKeyToken=b77a5c561934e089"));
 			a1 = new string [10];
 		}
 
-		class X
+		public class X
 		{
 			public static int Value;
 		}
@@ -2774,7 +2788,7 @@ PublicKeyToken=b77a5c561934e089"));
 			Assert.IsNull (i);
 		}
 
-#if !TARGET_JVM && !MOBILE // Reflection.Emit is not supported for TARGET_JVM
+#if !MOBILE
 		[Test]
 		public void EqualsUnderlyingType ()
 		{
@@ -2793,7 +2807,7 @@ PublicKeyToken=b77a5c561934e089"));
 
 			Assert.IsTrue (typeof (int).Equals (e));
 		}
-#endif // TARGET_JVM
+#endif
 
 		[Test]
 		public void Equals_Type_Null ()
@@ -4023,6 +4037,25 @@ PublicKeyToken=b77a5c561934e089"));
             Console.WriteLine(typeof(IEnumerable<int?>).IsAssignableFrom(typeof(IEnumerable<int>)));
 		}
 #endif
+
+		[Test]
+		public void GetTypeParseGenericCorrectly () { //Bug #15124
+			Assert.AreEqual (Type.GetType ("MonoTests.System.Foo`1"), typeof (Foo<>), "#1");
+			Assert.AreEqual (Type.GetType ("MonoTests.System.Foo`1[System.Int32]"), typeof (Foo<int>), "#2");
+			Assert.AreEqual (Type.GetType ("MonoTests.System.Foo`1[[System.Int32]]"), typeof (Foo<int>), "#3");
+			Assert.AreEqual (Type.GetType ("MonoTests.System.Foo`1[System.Int32][]"), typeof (Foo<int>[]), "#4");
+			Assert.AreEqual (Type.GetType ("MonoTests.System.Foo`1[][System.Int32]"), null, "#5");
+			Assert.AreEqual (Type.GetType ("MonoTests.System.Foo`1[System.Int32][,]"), typeof (Foo<int>[,]), "#6");
+			Assert.AreEqual (Type.GetType ("MonoTests.System.Foo`1[]"), typeof (Foo<>).MakeArrayType(), "#7");
+			Assert.AreEqual (Type.GetType ("MonoTests.System.Foo`1[,]"), typeof (Foo<>).MakeArrayType (2), "#8");
+			Assert.AreEqual (Type.GetType ("MonoTests.System.Foo`1[][]"), typeof (Foo<>).MakeArrayType ().MakeArrayType (), "#9");
+			Assert.AreEqual (Type.GetType ("MonoTests.System.Foo`1["), null, "#10");
+			Assert.AreEqual (Type.GetType ("MonoTests.System.Foo`1[["), null, "#11");
+			Assert.AreEqual (Type.GetType ("MonoTests.System.Foo`1[[]"), null, "#12");
+			Assert.AreEqual (Type.GetType ("MonoTests.System.Foo`1[,"), null, "#13");
+			Assert.AreEqual (Type.GetType ("MonoTests.System.Foo`1[*"), null, "#14");
+			Assert.AreEqual (Type.GetType ("MonoTests.System.Foo`1[System.Int32"), null, "#15");
+		}
 
 		public abstract class Stream : IDisposable
 		{

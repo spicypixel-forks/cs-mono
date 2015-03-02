@@ -10,6 +10,9 @@
 
 #define SGEN_PROTOCOL_EOF	255
 
+#define TYPE(t)		((t) & 0x7f)
+#define WORKER(t)	((t) & 0x80)
+
 static int
 read_entry (FILE *in, void **data)
 {
@@ -18,10 +21,16 @@ read_entry (FILE *in, void **data)
 
 	if (fread (&type, 1, 1, in) != 1)
 		return SGEN_PROTOCOL_EOF;
-	switch (type) {
+	switch (TYPE (type)) {
 	case SGEN_PROTOCOL_COLLECTION_FORCE: size = sizeof (SGenProtocolCollectionForce); break;
 	case SGEN_PROTOCOL_COLLECTION_BEGIN: size = sizeof (SGenProtocolCollection); break;
 	case SGEN_PROTOCOL_COLLECTION_END: size = sizeof (SGenProtocolCollection); break;
+	case SGEN_PROTOCOL_CONCURRENT_START: size = 0; break;
+	case SGEN_PROTOCOL_CONCURRENT_UPDATE_FINISH: size = 0; break;
+	case SGEN_PROTOCOL_WORLD_STOPPING: size = sizeof (SGenProtocolWorldStopping); break;
+	case SGEN_PROTOCOL_WORLD_STOPPED: size = sizeof (SGenProtocolWorldStopped); break;
+	case SGEN_PROTOCOL_WORLD_RESTARTING: size = sizeof (SGenProtocolWorldRestarting); break;
+	case SGEN_PROTOCOL_WORLD_RESTARTED: size = sizeof (SGenProtocolWorldRestarted); break;
 	case SGEN_PROTOCOL_ALLOC: size = sizeof (SGenProtocolAlloc); break;
 	case SGEN_PROTOCOL_ALLOC_PINNED: size = sizeof (SGenProtocolAlloc); break;
 	case SGEN_PROTOCOL_ALLOC_DEGRADED: size = sizeof (SGenProtocolAlloc); break;
@@ -48,6 +57,8 @@ read_entry (FILE *in, void **data)
 	case SGEN_PROTOCOL_DISLINK_PROCESS_STAGED: size = sizeof (SGenProtocolDislinkProcessStaged); break;
 	case SGEN_PROTOCOL_DOMAIN_UNLOAD_BEGIN: size = sizeof (SGenProtocolDomainUnload); break;
 	case SGEN_PROTOCOL_DOMAIN_UNLOAD_END: size = sizeof (SGenProtocolDomainUnload); break;
+	case SGEN_PROTOCOL_GRAY_ENQUEUE: size = sizeof (SGenProtocolGrayQueue); break;
+	case SGEN_PROTOCOL_GRAY_DEQUEUE: size = sizeof (SGenProtocolGrayQueue); break;
 	default: assert (0);
 	}
 
@@ -62,10 +73,43 @@ read_entry (FILE *in, void **data)
 	return (int)type;
 }
 
+static gboolean
+is_always_match (int type)
+{
+	switch (TYPE (type)) {
+	case SGEN_PROTOCOL_COLLECTION_FORCE:
+	case SGEN_PROTOCOL_COLLECTION_BEGIN:
+	case SGEN_PROTOCOL_COLLECTION_END:
+	case SGEN_PROTOCOL_CONCURRENT_START:
+	case SGEN_PROTOCOL_CONCURRENT_UPDATE_FINISH:
+	case SGEN_PROTOCOL_WORLD_STOPPING:
+	case SGEN_PROTOCOL_WORLD_STOPPED:
+	case SGEN_PROTOCOL_WORLD_RESTARTING:
+	case SGEN_PROTOCOL_WORLD_RESTARTED:
+	case SGEN_PROTOCOL_THREAD_SUSPEND:
+	case SGEN_PROTOCOL_THREAD_RESTART:
+	case SGEN_PROTOCOL_THREAD_REGISTER:
+	case SGEN_PROTOCOL_THREAD_UNREGISTER:
+	case SGEN_PROTOCOL_CEMENT_RESET:
+	case SGEN_PROTOCOL_DOMAIN_UNLOAD_BEGIN:
+	case SGEN_PROTOCOL_DOMAIN_UNLOAD_END:
+	case SGEN_PROTOCOL_GRAY_ENQUEUE:
+	case SGEN_PROTOCOL_GRAY_DEQUEUE:
+		return TRUE;
+	default:
+		return FALSE;
+	}
+}
+
+#define WORKER_PREFIX(t)	(WORKER ((t)) ? "w" : " ")
+
 static void
 print_entry (int type, void *data)
 {
-	switch (type) {
+	const char *always_prefix = is_always_match (type) ? "  " : "";
+	printf ("%s%s ", WORKER_PREFIX (type), always_prefix);
+
+	switch (TYPE (type)) {
 	case SGEN_PROTOCOL_COLLECTION_FORCE: {
 		SGenProtocolCollectionForce *entry = data;
 		printf ("collection force generation %d\n", entry->generation);
@@ -79,6 +123,38 @@ print_entry (int type, void *data)
 	case SGEN_PROTOCOL_COLLECTION_END: {
 		SGenProtocolCollection *entry = data;
 		printf ("collection end %d generation %d\n", entry->index, entry->generation);
+		break;
+	}
+	case SGEN_PROTOCOL_CONCURRENT_START: {
+		printf ("concurrent start\n");
+		break;
+	}
+	case SGEN_PROTOCOL_CONCURRENT_UPDATE_FINISH: {
+		printf ("concurrent update or finish\n");
+		break;
+	}
+	case SGEN_PROTOCOL_WORLD_STOPPING: {
+		SGenProtocolWorldStopping *entry = data;
+		printf ("world stopping timestamp %lld\n", entry->timestamp);
+		break;
+	}
+	case SGEN_PROTOCOL_WORLD_STOPPED: {
+		SGenProtocolWorldStopped *entry = data;
+		long long total = entry->total_major_cards + entry->total_los_cards;
+		long long marked = entry->marked_major_cards + entry->marked_los_cards;
+		printf ("world stopped timestamp %lld total %lld marked %lld %0.2f%%\n", entry->timestamp, total, marked, 100.0 * (double) marked / (double) total);
+		break;
+	}
+	case SGEN_PROTOCOL_WORLD_RESTARTING: {
+		SGenProtocolWorldRestarting *entry = data;
+		long long total = entry->total_major_cards + entry->total_los_cards;
+		long long marked = entry->marked_major_cards + entry->marked_los_cards;
+		printf ("world restarting generation %d timestamp %lld total %lld marked %lld %0.2f%%\n", entry->generation, entry->timestamp, total, marked, 100.0 * (double) marked / (double) total);
+		break;
+	}
+	case SGEN_PROTOCOL_WORLD_RESTARTED: {
+		SGenProtocolWorldRestarted *entry = data;
+		printf ("world restarted generation %d timestamp %lld\n", entry->generation, entry->timestamp);
 		break;
 	}
 	case SGEN_PROTOCOL_ALLOC: {
@@ -220,6 +296,16 @@ print_entry (int type, void *data)
 		printf ("dislink_unload_end domain %p\n", entry->domain);
 		break;
 	}
+	case SGEN_PROTOCOL_GRAY_ENQUEUE: {
+		SGenProtocolGrayQueue *entry = data;
+		printf ("enqueue queue %p cursor %p value %p\n", entry->queue, entry->cursor, entry->value);
+		break;
+	}
+	case SGEN_PROTOCOL_GRAY_DEQUEUE: {
+		SGenProtocolGrayQueue *entry = data;
+		printf ("dequeue queue %p cursor %p value %p\n", entry->queue, entry->cursor, entry->value);
+		break;
+	}
 	default:
 		assert (0);
 	}
@@ -234,18 +320,7 @@ matches_interval (gpointer ptr, gpointer start, int size)
 static gboolean
 is_match (gpointer ptr, int type, void *data)
 {
-	switch (type) {
-	case SGEN_PROTOCOL_COLLECTION_FORCE:
-	case SGEN_PROTOCOL_COLLECTION_BEGIN:
-	case SGEN_PROTOCOL_COLLECTION_END:
-	case SGEN_PROTOCOL_THREAD_SUSPEND:
-	case SGEN_PROTOCOL_THREAD_RESTART:
-	case SGEN_PROTOCOL_THREAD_REGISTER:
-	case SGEN_PROTOCOL_THREAD_UNREGISTER:
-	case SGEN_PROTOCOL_CEMENT_RESET:
-	case SGEN_PROTOCOL_DOMAIN_UNLOAD_BEGIN:
-	case SGEN_PROTOCOL_DOMAIN_UNLOAD_END:
-		return TRUE;
+	switch (TYPE (type)) {
 	case SGEN_PROTOCOL_ALLOC:
 	case SGEN_PROTOCOL_ALLOC_PINNED:
 	case SGEN_PROTOCOL_ALLOC_DEGRADED: {
@@ -318,7 +393,17 @@ is_match (gpointer ptr, int type, void *data)
 		SGenProtocolDislinkProcessStaged *entry = data;
 		return ptr == entry->obj || ptr == entry->link;
 	}
+	case SGEN_PROTOCOL_GRAY_ENQUEUE: {
+		SGenProtocolGrayQueue *entry = data;
+		return ptr == entry->cursor || ptr == entry->value;
+	}
+	case SGEN_PROTOCOL_GRAY_DEQUEUE: {
+		SGenProtocolGrayQueue *entry = data;
+		return ptr == entry->cursor || ptr == entry->value;
+	}
 	default:
+		if (is_always_match (type))
+			return TRUE;
 		assert (0);
 	}
 }
@@ -326,7 +411,7 @@ is_match (gpointer ptr, int type, void *data)
 static gboolean
 is_vtable_match (gpointer ptr, int type, void *data)
 {
-	switch (type) {
+	switch (TYPE (type)) {
 	case SGEN_PROTOCOL_ALLOC:
 	case SGEN_PROTOCOL_ALLOC_PINNED:
 	case SGEN_PROTOCOL_ALLOC_DEGRADED: {
@@ -374,8 +459,6 @@ is_vtable_match (gpointer ptr, int type, void *data)
 	}
 }
 
-static gboolean dump_all = FALSE;
-
 int
 main (int argc, char *argv[])
 {
@@ -387,12 +470,19 @@ main (int argc, char *argv[])
 	int i;
 	long nums [num_args];
 	long vtables [num_args];
+	gboolean dump_all = FALSE;
+	gboolean pause_times = FALSE;
+	gboolean pause_times_stopped = FALSE;
+	gboolean pause_times_concurrent = FALSE;
+	long long pause_times_ts = 0;
 
 	for (i = 0; i < num_args; ++i) {
 		char *arg = argv [i + 1];
 		char *next_arg = argv [i + 2];
 		if (!strcmp (arg, "--all")) {
 			dump_all = TRUE;
+		} else if (!strcmp (arg, "--pause-times")) {
+			pause_times = TRUE;
 		} else if (!strcmp (arg, "-v") || !strcmp (arg, "--vtable")) {
 			vtables [num_vtables++] = strtoul (next_arg, NULL, 16);
 			++i;
@@ -401,26 +491,59 @@ main (int argc, char *argv[])
 		}
 	}
 
+	if (dump_all)
+		assert (!pause_times);
+	if (pause_times)
+		assert (!dump_all);
+
 	while ((type = read_entry (stdin, &data)) != SGEN_PROTOCOL_EOF) {
-		gboolean match = FALSE;
-		for (i = 0; i < num_nums; ++i) {
-			if (is_match ((gpointer) nums [i], type, data)) {
-				match = TRUE;
+		if (pause_times) {
+			switch (type) {
+			case SGEN_PROTOCOL_WORLD_STOPPING: {
+				SGenProtocolWorldStopping *entry = data;
+				assert (!pause_times_stopped);
+				pause_times_concurrent = FALSE;
+				pause_times_ts = entry->timestamp;
+				pause_times_stopped = TRUE;
 				break;
 			}
-		}
-		if (!match) {
-			for (i = 0; i < num_vtables; ++i) {
-				if (is_vtable_match ((gpointer) vtables [i], type, data)) {
+			case SGEN_PROTOCOL_CONCURRENT_START:
+			case SGEN_PROTOCOL_CONCURRENT_UPDATE_FINISH:
+				pause_times_concurrent = TRUE;
+				break;
+			case SGEN_PROTOCOL_WORLD_RESTARTED: {
+				SGenProtocolWorldRestarted *entry = data;
+				assert (pause_times_stopped);
+				printf ("pause-time %d %d %lld %lld\n",
+						entry->generation,
+						pause_times_concurrent,
+						entry->timestamp - pause_times_ts,
+						pause_times_ts);
+				pause_times_stopped = FALSE;
+				break;
+			}
+			}
+		} else {
+			gboolean match = num_nums == 0 ? is_match (NULL, type, data) : FALSE;
+			for (i = 0; i < num_nums; ++i) {
+				if (is_match ((gpointer) nums [i], type, data)) {
 					match = TRUE;
 					break;
 				}
 			}
+			if (!match) {
+				for (i = 0; i < num_vtables; ++i) {
+					if (is_vtable_match ((gpointer) vtables [i], type, data)) {
+						match = TRUE;
+						break;
+					}
+				}
+			}
+			if (dump_all)
+				printf (match ? "* " : "  ");
+			if (match || dump_all)
+				print_entry (type, data);
 		}
-		if (dump_all)
-			printf (match ? "* " : "  ");
-		if (match || dump_all)
-			print_entry (type, data);
 		free (data);
 	}
 

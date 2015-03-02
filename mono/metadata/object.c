@@ -88,9 +88,9 @@ static char *
 mono_string_to_utf8_internal (MonoMemPool *mp, MonoImage *image, MonoString *s, gboolean ignore_error, MonoError *error);
 
 
-#define ldstr_lock() EnterCriticalSection (&ldstr_section)
-#define ldstr_unlock() LeaveCriticalSection (&ldstr_section)
-static CRITICAL_SECTION ldstr_section;
+#define ldstr_lock() mono_mutex_lock (&ldstr_section)
+#define ldstr_unlock() mono_mutex_unlock (&ldstr_section)
+static mono_mutex_t ldstr_section;
 
 static gboolean profile_allocs = TRUE;
 
@@ -137,13 +137,13 @@ typedef struct
 	guint32 initializing_tid;
 	guint32 waiting_count;
 	gboolean done;
-	CRITICAL_SECTION initialization_section;
+	mono_mutex_t initialization_section;
 } TypeInitializationLock;
 
 /* for locking access to type_initialization_hash and blocked_thread_hash */
-#define mono_type_initialization_lock() EnterCriticalSection (&type_initialization_section)
-#define mono_type_initialization_unlock() LeaveCriticalSection (&type_initialization_section)
-static CRITICAL_SECTION type_initialization_section;
+#define mono_type_initialization_lock() mono_mutex_lock (&type_initialization_section)
+#define mono_type_initialization_unlock() mono_mutex_unlock (&type_initialization_section)
+static mono_mutex_t type_initialization_section;
 
 /* from vtable to lock */
 static GHashTable *type_initialization_hash;
@@ -188,10 +188,10 @@ mono_thread_get_main (void)
 void
 mono_type_initialization_init (void)
 {
-	InitializeCriticalSection (&type_initialization_section);
+	mono_mutex_init_recursive (&type_initialization_section);
 	type_initialization_hash = g_hash_table_new (NULL, NULL);
 	blocked_thread_hash = g_hash_table_new (NULL, NULL);
-	InitializeCriticalSection (&ldstr_section);
+	mono_mutex_init_recursive (&ldstr_section);
 }
 
 void
@@ -201,11 +201,11 @@ mono_type_initialization_cleanup (void)
 	/* This is causing race conditions with
 	 * mono_release_type_locks
 	 */
-	DeleteCriticalSection (&type_initialization_section);
+	mono_mutex_destroy (&type_initialization_section);
 	g_hash_table_destroy (type_initialization_hash);
 	type_initialization_hash = NULL;
 #endif
-	DeleteCriticalSection (&ldstr_section);
+	mono_mutex_destroy (&ldstr_section);
 	g_hash_table_destroy (blocked_thread_hash);
 	blocked_thread_hash = NULL;
 
@@ -287,8 +287,19 @@ mono_runtime_class_init_full (MonoVTable *vtable, gboolean raise_exception)
 	if (!klass->image->checked_module_cctor) {
 		mono_image_check_for_module_cctor (klass->image);
 		if (klass->image->has_module_cctor) {
-			MonoClass *module_klass = mono_class_get (klass->image, MONO_TOKEN_TYPE_DEF | 1);
-			MonoVTable *module_vtable = mono_class_vtable_full (vtable->domain, module_klass, raise_exception);
+			MonoError error;
+			MonoClass *module_klass;
+			MonoVTable *module_vtable;
+
+			module_klass = mono_class_get_checked (klass->image, MONO_TOKEN_TYPE_DEF | 1, &error);
+			if (!module_klass) {
+				exc = mono_error_convert_to_exception (&error);
+				if (raise_exception)
+					mono_raise_exception (exc);
+				return exc; 
+			}
+				
+			module_vtable = mono_class_vtable_full (vtable->domain, module_klass, raise_exception);
 			if (!module_vtable)
 				return NULL;
 			exc = mono_runtime_class_init_full (module_vtable, raise_exception);
@@ -334,12 +345,12 @@ mono_runtime_class_init_full (MonoVTable *vtable, gboolean raise_exception)
 				}
 			}
 			lock = g_malloc (sizeof(TypeInitializationLock));
-			InitializeCriticalSection (&lock->initialization_section);
+			mono_mutex_init_recursive (&lock->initialization_section);
 			lock->initializing_tid = tid;
 			lock->waiting_count = 1;
 			lock->done = FALSE;
 			/* grab the vtable lock while this thread still owns type_initialization_section */
-			EnterCriticalSection (&lock->initialization_section);
+			mono_mutex_lock (&lock->initialization_section);
 			g_hash_table_insert (type_initialization_hash, vtable, lock);
 			do_initialization = 1;
 		} else {
@@ -404,11 +415,11 @@ mono_runtime_class_init_full (MonoVTable *vtable, gboolean raise_exception)
 			if (last_domain)
 				mono_domain_set (last_domain, TRUE);
 			lock->done = TRUE;
-			LeaveCriticalSection (&lock->initialization_section);
+			mono_mutex_unlock (&lock->initialization_section);
 		} else {
 			/* this just blocks until the initializing thread is done */
-			EnterCriticalSection (&lock->initialization_section);
-			LeaveCriticalSection (&lock->initialization_section);
+			mono_mutex_lock (&lock->initialization_section);
+			mono_mutex_unlock (&lock->initialization_section);
 		}
 
 		mono_type_initialization_lock ();
@@ -416,7 +427,7 @@ mono_runtime_class_init_full (MonoVTable *vtable, gboolean raise_exception)
 			g_hash_table_remove (blocked_thread_hash, GUINT_TO_POINTER (tid));
 		--lock->waiting_count;
 		if (lock->waiting_count == 0) {
-			DeleteCriticalSection (&lock->initialization_section);
+			mono_mutex_destroy (&lock->initialization_section);
 			g_hash_table_remove (type_initialization_hash, vtable);
 			g_free (lock);
 		}
@@ -452,10 +463,10 @@ gboolean release_type_locks (gpointer key, gpointer value, gpointer user)
 		 * and get_type_init_exception_for_class () needs to be aware of this.
 		 */
 		vtable->init_failed = 1;
-		LeaveCriticalSection (&lock->initialization_section);
+		mono_mutex_unlock (&lock->initialization_section);
 		--lock->waiting_count;
 		if (lock->waiting_count == 0) {
-			DeleteCriticalSection (&lock->initialization_section);
+			mono_mutex_destroy (&lock->initialization_section);
 			g_free (lock);
 			return TRUE;
 		}
@@ -1311,6 +1322,7 @@ build_imt_slots (MonoClass *klass, MonoVTable *vt, MonoDomain *domain, gpointer*
 		if (mono_class_has_variant_generic_params (iface))
 			has_variant_iface = TRUE;
 
+		mono_class_setup_methods (iface);
 		vt_slot = interface_offset;
 		for (method_slot_in_interface = 0; method_slot_in_interface < iface->method.count; method_slot_in_interface++) {
 			MonoMethod *method;
@@ -1349,6 +1361,9 @@ build_imt_slots (MonoClass *klass, MonoVTable *vt, MonoDomain *domain, gpointer*
 			int method_slot_in_interface;
 			for (method_slot_in_interface = 0; method_slot_in_interface < iface->method.count; method_slot_in_interface++) {
 				MonoMethod *method = mono_class_get_method_by_index (iface, method_slot_in_interface);
+
+				if (method->is_generic)
+					has_generic_virtual = TRUE;
 				add_imt_builder_entry (imt_builder, method, &imt_collisions_bitmap, interface_offset + method_slot_in_interface, slot_num);
 			}
 			interface_offset += iface->method.count;
@@ -2013,7 +2028,7 @@ mono_class_create_runtime_vtable (MonoDomain *domain, MonoClass *class, gboolean
 					bitmap = default_bitmap;
 				} else if (mono_type_is_struct (field->type)) {
 					fclass = mono_class_from_mono_type (field->type);
-					bitmap = compute_class_bitmap (fclass, default_bitmap, sizeof (default_bitmap) * 8, 0, &max_set, FALSE);
+					bitmap = compute_class_bitmap (fclass, default_bitmap, sizeof (default_bitmap) * 8, - (int)(sizeof (MonoObject) / sizeof (gpointer)), &max_set, FALSE);
 					numbits = max_set + 1;
 				} else {
 					default_bitmap [0] = 0;
@@ -2969,7 +2984,7 @@ handle_enum:
 			MonoClass *class = mono_class_from_mono_type (type);
 			int size = mono_class_value_size (class, NULL);
 			if (value == NULL)
-				mono_gc_bzero (dest, size);
+				mono_gc_bzero_atomic (dest, size);
 			else
 				mono_gc_wbarrier_value_copy (dest, value, 1, class);
 		}
@@ -3341,7 +3356,7 @@ mono_field_static_get_value_for_thread (MonoInternalThread *thread, MonoVTable *
 void
 mono_field_static_get_value (MonoVTable *vt, MonoClassField *field, void *value)
 {
-	return mono_field_static_get_value_for_thread (mono_thread_internal_current (), vt, field, value);
+	mono_field_static_get_value_for_thread (mono_thread_internal_current (), vt, field, value);
 }
 
 /**
@@ -3418,9 +3433,9 @@ mono_nullable_init (guint8 *buf, MonoObject *value, MonoClass *klass)
 		if (param_class->has_references)
 			mono_gc_wbarrier_value_copy (buf + klass->fields [0].offset - sizeof (MonoObject), mono_object_unbox (value), 1, param_class);
 		else
-			mono_gc_memmove (buf + klass->fields [0].offset - sizeof (MonoObject), mono_object_unbox (value), mono_class_value_size (param_class, NULL));
+			mono_gc_memmove_atomic (buf + klass->fields [0].offset - sizeof (MonoObject), mono_object_unbox (value), mono_class_value_size (param_class, NULL));
 	} else {
-		mono_gc_bzero (buf + klass->fields [0].offset - sizeof (MonoObject), mono_class_value_size (param_class, NULL));
+		mono_gc_bzero_atomic (buf + klass->fields [0].offset - sizeof (MonoObject), mono_class_value_size (param_class, NULL));
 	}
 }
 
@@ -3448,7 +3463,7 @@ mono_nullable_box (guint8 *buf, MonoClass *klass)
 		if (param_class->has_references)
 			mono_gc_wbarrier_value_copy (mono_object_unbox (o), buf + klass->fields [0].offset - sizeof (MonoObject), 1, param_class);
 		else
-			mono_gc_memmove (mono_object_unbox (o), buf + klass->fields [0].offset - sizeof (MonoObject), mono_class_value_size (param_class, NULL));
+			mono_gc_memmove_atomic (mono_object_unbox (o), buf + klass->fields [0].offset - sizeof (MonoObject), mono_class_value_size (param_class, NULL));
 		return o;
 	}
 	else
@@ -3539,7 +3554,7 @@ mono_runtime_delegate_invoke (MonoObject *delegate, void **params, MonoObject **
 }
 
 static char **main_args = NULL;
-static int num_main_args;
+static int num_main_args = 0;
 
 /**
  * mono_runtime_get_main_args:
@@ -3552,9 +3567,6 @@ mono_runtime_get_main_args (void)
 	MonoArray *res;
 	int i;
 	MonoDomain *domain = mono_domain_get ();
-
-	if (!main_args)
-		return NULL;
 
 	res = (MonoArray*)mono_array_new (domain, mono_defaults.string_class, num_main_args);
 
@@ -3572,6 +3584,41 @@ free_main_args (void)
 	for (i = 0; i < num_main_args; ++i)
 		g_free (main_args [i]);
 	g_free (main_args);
+	num_main_args = 0;
+	main_args = NULL;
+}
+
+/**
+ * mono_runtime_set_main_args:
+ * @argc: number of arguments from the command line
+ * @argv: array of strings from the command line
+ *
+ * Set the command line arguments from an embedding application that doesn't otherwise call
+ * mono_runtime_run_main ().
+ */
+int
+mono_runtime_set_main_args (int argc, char* argv[])
+{
+	int i;
+
+	free_main_args ();
+	main_args = g_new0 (char*, argc);
+	num_main_args = argc;
+
+	for (i = 0; i < argc; ++i) {
+		gchar *utf8_arg;
+
+		utf8_arg = mono_utf8_from_external (argv[i]);
+		if (utf8_arg == NULL) {
+			g_print ("\nCannot determine the text encoding for argument %d (%s).\n", i, argv [i]);
+			g_print ("Please add the correct encoding to MONO_EXTERNAL_ENCODINGS and try again.\n");
+			exit (-1);
+		}
+
+		main_args [i] = utf8_arg;
+	}
+
+	return 0;
 }
 
 /**
@@ -4046,8 +4093,6 @@ mono_runtime_exec_main (MonoMethod *method, MonoArray *args, MonoObject **exc)
 	}
 	mono_thread_init_apartment_state ();
 
-	mono_debugger_event (MONO_DEBUGGER_EVENT_REACHED_MAIN, 0, 0);
-
 	/* FIXME: check signature of method */
 	if (mono_method_signature (method)->ret->type == MONO_TYPE_I4) {
 		MonoObject *res;
@@ -4072,8 +4117,6 @@ mono_runtime_exec_main (MonoMethod *method, MonoArray *args, MonoObject **exc)
 			mono_environment_exitcode_set (rval);
 		}
 	}
-
-	mono_debugger_event (MONO_DEBUGGER_EVENT_MAIN_EXITED, (guint64) (gsize) rval, 0);
 
 	return rval;
 }
@@ -4564,9 +4607,11 @@ mono_class_get_allocation_ftn (MonoVTable *vtable, gboolean for_box, gboolean *p
 MonoObject *
 mono_object_new_from_token  (MonoDomain *domain, MonoImage *image, guint32 token)
 {
+	MonoError error;
 	MonoClass *class;
 
-	class = mono_class_get (image, token);
+	class = mono_class_get_checked (image, token, &error);
+	g_assert (mono_error_ok (&error)); /* FIXME don't swallow the error */
 
 	return mono_object_new (domain, class);
 }
@@ -4594,7 +4639,7 @@ mono_object_clone (MonoObject *obj)
 	} else {
 		int size = obj->vtable->klass->instance_size;
 		/* do not copy the sync state */
-		mono_gc_memmove ((char*)o + sizeof (MonoObject), (char*)obj + sizeof (MonoObject), size - sizeof (MonoObject));
+		mono_gc_memmove_atomic ((char*)o + sizeof (MonoObject), (char*)obj + sizeof (MonoObject), size - sizeof (MonoObject));
 	}
 	if (G_UNLIKELY (profile_allocs))
 		mono_profiler_allocation (o, obj->vtable->klass);
@@ -4627,14 +4672,14 @@ mono_array_full_copy (MonoArray *src, MonoArray *dest)
 #ifdef HAVE_SGEN_GC
 	if (klass->element_class->valuetype) {
 		if (klass->element_class->has_references)
-			mono_value_copy_array (dest, 0, mono_array_addr_with_size (src, 0, 0), mono_array_length (src));
+			mono_value_copy_array (dest, 0, mono_array_addr_with_size_fast (src, 0, 0), mono_array_length (src));
 		else
-			mono_gc_memmove (&dest->vector, &src->vector, size);
+			mono_gc_memmove_atomic (&dest->vector, &src->vector, size);
 	} else {
 		mono_array_memcpy_refs (dest, 0, src, 0, mono_array_length (src));
 	}
 #else
-	mono_gc_memmove (&dest->vector, &src->vector, size);
+	mono_gc_memmove_atomic (&dest->vector, &src->vector, size);
 #endif
 }
 
@@ -4664,14 +4709,14 @@ mono_array_clone_in_domain (MonoDomain *domain, MonoArray *array)
 #ifdef HAVE_SGEN_GC
 		if (klass->element_class->valuetype) {
 			if (klass->element_class->has_references)
-				mono_value_copy_array (o, 0, mono_array_addr_with_size (array, 0, 0), mono_array_length (array));
+				mono_value_copy_array (o, 0, mono_array_addr_with_size_fast (array, 0, 0), mono_array_length (array));
 			else
-				mono_gc_memmove (&o->vector, &array->vector, size);
+				mono_gc_memmove_atomic (&o->vector, &array->vector, size);
 		} else {
 			mono_array_memcpy_refs (o, 0, array, 0, mono_array_length (array));
 		}
 #else
-		mono_gc_memmove (&o->vector, &array->vector, size);
+		mono_gc_memmove_atomic (&o->vector, &array->vector, size);
 #endif
 		return o;
 	}
@@ -4687,14 +4732,14 @@ mono_array_clone_in_domain (MonoDomain *domain, MonoArray *array)
 #ifdef HAVE_SGEN_GC
 	if (klass->element_class->valuetype) {
 		if (klass->element_class->has_references)
-			mono_value_copy_array (o, 0, mono_array_addr_with_size (array, 0, 0), mono_array_length (array));
+			mono_value_copy_array (o, 0, mono_array_addr_with_size_fast (array, 0, 0), mono_array_length (array));
 		else
-			mono_gc_memmove (&o->vector, &array->vector, size);
+			mono_gc_memmove_atomic (&o->vector, &array->vector, size);
 	} else {
 		mono_array_memcpy_refs (o, 0, array, 0, mono_array_length (array));
 	}
 #else
-	mono_gc_memmove (&o->vector, &array->vector, size);
+	mono_gc_memmove_atomic (&o->vector, &array->vector, size);
 #endif
 
 	return o;
@@ -4762,7 +4807,7 @@ mono_array_calc_byte_len (MonoClass *class, uintptr_t len, uintptr_t *res)
 MonoArray*
 mono_array_new_full (MonoDomain *domain, MonoClass *array_class, uintptr_t *lengths, intptr_t *lower_bounds)
 {
-	uintptr_t byte_len, len, bounds_size;
+	uintptr_t byte_len = 0, len, bounds_size;
 	MonoObject *o;
 	MonoArray *array;
 	MonoArrayBounds *bounds;
@@ -4949,6 +4994,39 @@ mono_string_new_utf16 (MonoDomain *domain, const guint16 *text, gint32 len)
 }
 
 /**
+ * mono_string_new_utf32:
+ * @text: a pointer to an utf32 string
+ * @len: the length of the string
+ *
+ * Returns: A newly created string object which contains @text.
+ */
+MonoString *
+mono_string_new_utf32 (MonoDomain *domain, const mono_unichar4 *text, gint32 len)
+{
+	MonoString *s;
+	mono_unichar2 *utf16_output = NULL;
+	gint32 utf16_len = 0;
+	GError *error = NULL;
+	glong items_written;
+	
+	utf16_output = g_ucs4_to_utf16 (text, len, NULL, &items_written, &error);
+	
+	if (error)
+		g_error_free (error);
+
+	while (utf16_output [utf16_len]) utf16_len++;
+	
+	s = mono_string_new_size (domain, utf16_len);
+	g_assert (s != NULL);
+
+	memcpy (mono_string_chars (s), utf16_output, utf16_len * 2);
+
+	g_free (utf16_output);
+	
+	return s;
+}
+
+/**
  * mono_string_new_size:
  * @text: a pointer to an utf16 string
  * @len: the length of the string
@@ -4960,11 +5038,14 @@ mono_string_new_size (MonoDomain *domain, gint32 len)
 {
 	MonoString *s;
 	MonoVTable *vtable;
-	size_t size = (sizeof (MonoString) + ((len + 1) * 2));
+	size_t size;
 
-	/* overflow ? can't fit it, can't allocate it! */
-	if (len > size)
+	/* check for overflow */
+	if (len < 0 || len > ((SIZE_MAX - sizeof (MonoString) - 2) / 2))
 		mono_gc_out_of_memory (-1);
+
+	size = (sizeof (MonoString) + ((len + 1) * 2));
+	g_assert (size > 0);
 
 	vtable = mono_class_vtable (domain, mono_defaults.string_class);
 	g_assert (vtable);
@@ -5111,7 +5192,7 @@ mono_value_box (MonoDomain *domain, MonoClass *class, gpointer value)
 	mono_gc_wbarrier_value_copy ((char *)res + sizeof (MonoObject), value, 1, class);
 #else
 #if NO_UNALIGNED_ACCESS
-	mono_gc_memmove ((char *)res + sizeof (MonoObject), value, size);
+	mono_gc_memmove_atomic ((char *)res + sizeof (MonoObject), value, size);
 #else
 	switch (size) {
 	case 1:
@@ -5127,7 +5208,7 @@ mono_value_box (MonoDomain *domain, MonoClass *class, gpointer value)
 		*(guint64 *)((guint8 *) res + sizeof (MonoObject)) = *(guint64 *) value;
 		break;
 	default:
-		mono_gc_memmove ((char *)res + sizeof (MonoObject), value, size);
+		mono_gc_memmove_atomic ((char *)res + sizeof (MonoObject), value, size);
 	}
 #endif
 #endif
@@ -5166,7 +5247,7 @@ void
 mono_value_copy_array (MonoArray *dest, int dest_idx, gpointer src, int count)
 {
 	int size = mono_array_element_size (dest->obj.vtable->klass);
-	char *d = mono_array_addr_with_size (dest, size, dest_idx);
+	char *d = mono_array_addr_with_size_fast (dest, size, dest_idx);
 	g_assert (size == mono_class_value_size (mono_object_class (dest)->element_class, NULL));
 	mono_gc_wbarrier_value_copy (d, src, count, mono_object_class (dest)->element_class);
 }
@@ -5654,6 +5735,31 @@ mono_string_to_utf16 (MonoString *s)
 }
 
 /**
+ * mono_string_to_utf32:
+ * @s: a MonoString
+ *
+ * Return an null-terminated array of the UTF-32 (UCS-4) chars
+ * contained in @s. The result must be freed with g_free().
+ */
+mono_unichar4*
+mono_string_to_utf32 (MonoString *s)
+{
+	mono_unichar4 *utf32_output = NULL; 
+	GError *error = NULL;
+	glong items_written;
+	
+	if (s == NULL)
+		return NULL;
+		
+	utf32_output = g_utf16_to_ucs4 (s->chars, s->length, NULL, &items_written, &error);
+	
+	if (error)
+		g_error_free (error);
+
+	return utf32_output;
+}
+
+/**
  * mono_string_from_utf16:
  * @data: the UTF16 string (LPWSTR) to convert
  *
@@ -5675,6 +5781,37 @@ mono_string_from_utf16 (gunichar2 *data)
 	return mono_string_new_utf16 (domain, data, len);
 }
 
+/**
+ * mono_string_from_utf32:
+ * @data: the UTF32 string (LPWSTR) to convert
+ *
+ * Converts a UTF32 (UCS-4)to a MonoString.
+ *
+ * Returns: a MonoString.
+ */
+MonoString *
+mono_string_from_utf32 (mono_unichar4 *data)
+{
+	MonoString* result = NULL;
+	mono_unichar2 *utf16_output = NULL;
+	GError *error = NULL;
+	glong items_written;
+	int len = 0;
+
+	if (!data)
+		return NULL;
+
+	while (data [len]) len++;
+
+	utf16_output = g_ucs4_to_utf16 (data, len, NULL, &items_written, &error);
+
+	if (error)
+		g_error_free (error);
+
+	result = mono_string_from_utf16 (utf16_output);
+	g_free (utf16_output);
+	return result;
+}
 
 static char *
 mono_string_to_utf8_internal (MonoMemPool *mp, MonoImage *image, MonoString *s, gboolean ignore_error, MonoError *error)
@@ -6189,7 +6326,7 @@ mono_delegate_ctor (MonoObject *this, MonoObject *target, gpointer addr)
 	if (!ji && domain != mono_get_root_domain ())
 		ji = mono_jit_info_table_find (mono_get_root_domain (), mono_get_addr_from_ftnptr (addr));
 	if (ji) {
-		method = ji->method;
+		method = mono_jit_info_get_method (ji);
 		g_assert (!method->klass->generic_container);
 	}
 
@@ -6294,10 +6431,10 @@ mono_method_return_message_restore (MonoMethod *method, gpointer *params, MonoAr
 					if (class->has_references)
 						mono_gc_wbarrier_value_copy (*((gpointer *)params [i]), arg + sizeof (MonoObject), 1, class);
 					else
-						mono_gc_memmove (*((gpointer *)params [i]), arg + sizeof (MonoObject), size);
+						mono_gc_memmove_atomic (*((gpointer *)params [i]), arg + sizeof (MonoObject), size);
 				} else {
 					size = mono_class_value_size (mono_class_from_mono_type (pt), NULL);
-					mono_gc_bzero (*((gpointer *)params [i]), size);
+					mono_gc_bzero_atomic (*((gpointer *)params [i]), size);
 				}
 			}
 

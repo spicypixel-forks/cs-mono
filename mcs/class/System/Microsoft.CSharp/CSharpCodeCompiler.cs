@@ -44,6 +44,7 @@ namespace Mono.CSharp
 	using System.Text.RegularExpressions;
 	using System.Threading;
 	using System.Collections.Generic;
+	using System.Globalization;
 	
 	internal class CSharpCodeCompiler : CSharpCodeGenerator, ICodeCompiler
 	{
@@ -194,7 +195,14 @@ namespace Mono.CSharp
 			if (Environment.GetEnvironmentVariable ("MONO_TESTS_IN_PROGRESS") != null) {
 				string monoPath = Environment.GetEnvironmentVariable ("MONO_PATH");
 				if (!String.IsNullOrEmpty (monoPath)) {
-					monoPath = monoPath.Replace ("/class/lib/net_2_0", "/class/lib/net_4_0");
+					const string basePath = "/class/lib/";
+					const string profile = "net_2_0";
+					var basePathIndex = monoPath.IndexOf (basePath, StringComparison.Ordinal);
+					if (basePathIndex > 0 && basePathIndex + basePath.Length + profile.Length <= monoPath.Length) {
+						var currentProfile = monoPath.Substring (basePathIndex + basePath.Length, profile.Length);
+						if (currentProfile.Equals (profile, StringComparison.OrdinalIgnoreCase))
+							monoPath = monoPath.Replace (basePath + currentProfile, basePath + "net_4_0");
+					}
 					mcs.StartInfo.EnvironmentVariables ["MONO_PATH"] = monoPath;
 				}
 			}
@@ -395,6 +403,20 @@ namespace Mono.CSharp
 				args.AppendFormat("\"{0}\" ",source);
 			return args.ToString();
 		}
+
+		// Keep in sync with mcs/class/Microsoft.Build.Utilities/Microsoft.Build.Utilities/ToolTask.cs
+		const string ErrorRegexPattern = @"
+			^
+			(\s*(?<file>[^\(]+)                         # filename (optional)
+			 (\((?<line>\d*)(,(?<column>\d*[\+]*))?\))? # line+column (optional)
+			 :\s+)?
+			(?<level>\w+)                               # error|warning
+			\s+
+			(?<number>[^:]*\d)                          # CS1234
+			:
+			\s*
+			(?<message>.*)$";
+
 		private static CompilerError CreateErrorFromString(string error_string)
 		{
 			if (error_string.StartsWith ("BETA"))
@@ -404,8 +426,7 @@ namespace Mono.CSharp
 				return null;
 
 			CompilerError error=new CompilerError();
-			Regex reg = new Regex (@"^(\s*(?<file>.*)\((?<line>\d*)(,(?<column>\d*))?\)(:)?\s+)*(?<level>\w+)\s*(?<number>.*):\s(?<message>.*)",
-				RegexOptions.Compiled | RegexOptions.ExplicitCapture);
+			Regex reg = new Regex (ErrorRegexPattern, RegexOptions.Compiled | RegexOptions.ExplicitCapture | RegexOptions.IgnorePatternWhitespace);
 			Match match=reg.Match(error_string);
 			if (!match.Success) {
 				// We had some sort of runtime crash
@@ -419,7 +440,7 @@ namespace Mono.CSharp
 			if (String.Empty != match.Result("${line}"))
 				error.Line=Int32.Parse(match.Result("${line}"));
 			if (String.Empty != match.Result("${column}"))
-				error.Column=Int32.Parse(match.Result("${column}"));
+				error.Column=Int32.Parse(match.Result("${column}").Trim('+'));
 
 			string level = match.Result ("${level}");
 			if (level == "warning")

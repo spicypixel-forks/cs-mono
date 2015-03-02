@@ -7,7 +7,6 @@
 //
 // Copyright (C) 2004-2007 Novell, Inc (http://www.novell.com)
 //
-#if !TARGET_JVM
 using NUnit.Framework;
 using System;
 using System.IO;
@@ -29,7 +28,7 @@ namespace MonoTests.System.Runtime.InteropServices
 			public int field;
 		}
 
-		class ClsNoLayout {
+		public class ClsNoLayout {
 			public int field;
 		}
 
@@ -115,6 +114,13 @@ namespace MonoTests.System.Runtime.InteropServices
 		}
 
 		[Test]
+		public unsafe void Sizeof_Pointer ()
+		{
+			int size = Marshal.SizeOf (typeof (char*));
+			Assert.IsTrue (size == 4 || size == 8);
+		}
+
+		[Test]
 		public void PtrToStringWithNull ()
 		{
 			Assert.IsNull (Marshal.PtrToStringAnsi (IntPtr.Zero), "A");
@@ -167,12 +173,12 @@ namespace MonoTests.System.Runtime.InteropServices
 			Marshal.FreeHGlobal (ptr);
 		}
 
-		struct Foo {
-			int a;
-			static int b;
-			long c;
-			static char d;
-			int e;
+		public struct Foo {
+			public int a;
+			public static int b;
+			public long c;
+			public static char d;
+			public int e;
 		}
 
 		[Test]
@@ -871,4 +877,3 @@ namespace MonoTests.System.Runtime.InteropServices
 	}
 #endif
 }
-#endif

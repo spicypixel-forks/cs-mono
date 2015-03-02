@@ -35,6 +35,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Collections.Generic;
 using System.Text;
+using System.Runtime.Serialization;
 
 namespace System.Reflection
 {
@@ -43,12 +44,16 @@ namespace System.Reflection
 	[Serializable]
 	[ClassInterfaceAttribute (ClassInterfaceType.None)]
 	[StructLayout (LayoutKind.Sequential)]
-#if MOBILE
-	public partial class ParameterInfo : ICustomAttributeProvider {
-#else
-	public partial class ParameterInfo : ICustomAttributeProvider, _ParameterInfo {
+	public partial class ParameterInfo : ICustomAttributeProvider
+
+#if !MOBILE
+	, _ParameterInfo
 #endif
 
+#if NET_4_0
+	, IObjectReference
+#endif
+ 	{
 		protected Type ClassImpl;
 		protected object DefaultValueImpl;
 		protected MemberInfo MemberImpl;
@@ -193,8 +198,7 @@ namespace System.Reflection
 		public virtual IEnumerable<CustomAttributeData> CustomAttributes {
 			get { return GetCustomAttributesData (); }
 		}
-
-		[MonoTODO]
+		
 		public virtual bool HasDefaultValue {
 			get { throw new NotImplementedException (); }
 		}
@@ -245,6 +249,11 @@ namespace System.Reflection
 		{
 			return new object [0];
 		}
+
+		public object GetRealObject (StreamingContext context)
+		{
+			throw new NotImplementedException ();
+		}		
 
 		public virtual bool IsDefined( Type attributeType, bool inherit) {
 			return false;

@@ -263,9 +263,6 @@ namespace MonoTests.System.Web {
 		}
 
 		[Test]
-#if TARGET_JVM
-		[Category ("NotWorking")] // char output stream in gh make this test fail
-#endif
 		public void Test_Response ()
 		{
 			FakeHttpWorkerRequest2 f;
@@ -287,9 +284,6 @@ namespace MonoTests.System.Web {
 		}
 
 		[Test]
-#if TARGET_JVM
-		[Category ("NotWorking")] // char output stream in gh make this test fail
-#endif
 		public void TestResponse_Chunked ()
 		{
 			FakeHttpWorkerRequest2 f;
@@ -542,6 +536,52 @@ namespace MonoTests.System.Web {
 			unknown = (UnknownResponseHeader) al [1];
 			Assert.AreEqual ("My-Custom-Header", unknown.Name, "#C9");
 			Assert.AreEqual ("always", unknown.Value, "#C10");
+		}
+
+		[Test] // pull #866
+		public void WriteHeadersNoCharset ()
+		{
+			FakeHttpWorkerRequest2 f;
+			HttpContext c = Cook (2, out f);
+
+			HttpResponse resp = c.Response;
+			resp.ContentType = "text/plain";
+
+			Assert.AreEqual ("text/plain", resp.ContentType, "#A1");
+
+			resp.Flush ();
+
+			KnownResponseHeader known;
+
+			Assert.LessOrEqual (1, f.KnownResponseHeaders.Count, "#B1");
+
+			known = (KnownResponseHeader)f.KnownResponseHeaders ["Content-Type"];
+			Assert.AreEqual (HttpWorkerRequest.HeaderContentType, known.Index, "#B2");
+			Assert.AreEqual ("text/plain", known.Value, "#B3");
+		}
+
+		[Test] // pull #866
+		public void WriteHeadersHasCharset ()
+		{
+			FakeHttpWorkerRequest2 f;
+			HttpContext c = Cook (2, out f);
+
+			HttpResponse resp = c.Response;
+			resp.ContentType = "text/plain";
+			resp.Charset = "big5";
+
+			Assert.AreEqual ("text/plain", resp.ContentType, "#A1");
+			Assert.AreEqual ("big5", resp.Charset, "#A2");
+
+			resp.Flush ();
+
+			KnownResponseHeader known;
+
+			Assert.LessOrEqual (1, f.KnownResponseHeaders.Count, "#B1");
+
+			known = (KnownResponseHeader)f.KnownResponseHeaders ["Content-Type"];
+			Assert.AreEqual (HttpWorkerRequest.HeaderContentType, known.Index, "#B2");
+			Assert.AreEqual ("text/plain; charset=big5", known.Value, "#B3");
 		}
 
 		[Test] // bug #485557

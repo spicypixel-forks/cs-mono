@@ -141,7 +141,9 @@ namespace Microsoft.Build.Tasks {
 		[MonoTODO]
 		protected override string GenerateFullPathToTool ()
 		{
-			return Path.Combine (ToolPath, ToolExe);
+			if (!string.IsNullOrEmpty (ToolPath))
+				return Path.Combine (ToolPath, ToolExe);
+			return ToolLocationHelper.GetPathToDotNetFrameworkFile (ToolExe, TargetDotNetFrameworkVersion.VersionLatest);
 		}
 		
 		[MonoTODO]
@@ -156,7 +158,7 @@ namespace Microsoft.Build.Tasks {
 			return true;
 		}
 
-		protected override void LogEventsFromTextOutput (string singleLine, MessageImportance importance)
+		protected override void LogEventsFromTextOutput (string singleLine, MessageImportance messageImportance)
 		{
 			singleLine = singleLine.Trim ();
 			if (singleLine.Length == 0)
@@ -171,7 +173,7 @@ namespace Microsoft.Build.Tasks {
 
 			Match match = ErrorRegex.Match (singleLine);
 			if (!match.Success) {
-				Log.LogMessage (importance, singleLine);
+				Log.LogMessage (messageImportance, singleLine);
 				return;
 			}
 
@@ -196,7 +198,7 @@ namespace Microsoft.Build.Tasks {
 				Log.LogError (null, code, null, filename, lineNumber, columnNumber, -1,
 					-1, text, null);
 			} else {
-				Log.LogMessage (importance, singleLine);
+				Log.LogMessage (messageImportance, singleLine);
 			}
 		}
 

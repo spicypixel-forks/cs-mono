@@ -4,14 +4,13 @@
 // Represents a floating-point decimal data type with up to 29 
 // significant digits, suitable for financial and commercial calculations.
 //
-// Author:
+// Authors:
 //   Martin Weindel (martin.weindel@t-online.de)
+//   Marek Safar (marek.safar@gmail.com)
 //
 // (C) 2001 Martin Weindel
-//
-
-//
 // Copyright (C) 2004 Novell, Inc (http://www.novell.com)
+// Copyright (C) 2014 Xamarin Inc (http://www.xamarin.com)
 //
 // Permission is hereby granted, free of charge, to any person obtaining
 // a copy of this software and associated documentation files (the
@@ -575,6 +574,14 @@ namespace System
 			dec_part = Decimal.Floor(dec_part);
 			dec_part /= (10000000000000000000000000000M / p);
 			dec_part = Math.Round (dec_part, mode);
+
+			// ignore trailing zeros
+			while (decimals > 0 && (dec_part % 10) == 0) {
+				decimals--;
+				dec_part /= 10;
+				p /= 10;
+			}
+
 			dec_part /= p;
 			decimal result = int_part + dec_part;
 
@@ -1081,22 +1088,25 @@ namespace System
 			// then we trunc the string
 			if ((len > max) && (iDecPos < len)) {
 				int round = (s [max] - '0');
-				s = s.Substring (0, max);
 
 				bool addone = false;
 				if (round > 5) {
 					addone = true;
-				}
-				else if (round == 5) {
+				} else if (round == 5) {
 					if (isNegative) {
 						addone = true;
-					}
-					else {
-						// banker rounding applies :(
-						int previous = (s [max - 1] - '0');
-						addone = ((previous & 0x01) == 0x01);
+					} else {
+						// banker's rounding applies
+						if (len > max + 1) {
+							addone = s [max + 1] > '0';
+						} else {
+							int previous = s [max - 1] - '0';
+							addone = ((previous & 0x01) == 0x01);
+						}
 					}
 				}
+
+				s = s.Substring (0, max);
 				if (addone) {
 					char[] array = s.ToCharArray ();
 					int p = max - 1;

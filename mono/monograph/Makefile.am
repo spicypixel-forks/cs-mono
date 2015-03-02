@@ -3,7 +3,6 @@ if HOST_WIN32
 export HOST_CC
 endif
 
-if JIT_SUPPORTED
 if DISABLE_EXECUTABLES
 runtime_lib=../mini/$(LIBMONO_LA) $(static_libs)
 else
@@ -20,13 +19,17 @@ else
 runtime_lib=../mini/$(LIBMONO_LA)
 endif
 endif
-else
-runtime_lib=../interpreter/libmint.la
-endif
 
-if DISABLE_LIBRARIES
+if DISABLE_EXECUTABLES
+bin_PROGRAMS =
 else
+if DISABLE_LIBRARIES
+bin_PROGRAMS =
+else
+if SUPPORT_BOEHM
 bin_PROGRAMS = monograph
+endif
+endif
 endif
 
 AM_CPPFLAGS = 				\

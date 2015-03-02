@@ -2277,6 +2277,79 @@ namespace MonoTests.System.XmlSerialization
 			}
 		}
 #endif
+
+		public class Bug594490Class
+		{
+			[XmlAttribute ("xml:lang")]
+			public string GroupName;
+		}
+
+		[Test]
+		public void Bug594490_SerializationOfXmlLangAttribute ()
+		{
+			var serializer = new XmlSerializer (typeof(Bug594490Class));
+
+			using (var writer = new StringWriter ()) {
+				var obj = new Bug594490Class ();
+
+				obj.GroupName = "hello world";
+
+				serializer.Serialize (writer, obj);
+				writer.Close ();
+
+				Assert.AreEqual (@"<?xml version=""1.0"" encoding=""utf-16""?>
+<Bug594490Class xmlns:xsi=""http://www.w3.org/2001/XMLSchema-instance"" xmlns:xsd=""http://www.w3.org/2001/XMLSchema"" xml:lang=""hello world"" />",
+					writer.ToString (),
+					"Novell bug #594490 (https://bugzilla.novell.com/show_bug.cgi?id=594490) not fixed.");
+			}
+		}
+
+		/*
+		 * The following code was generated from Microsoft's xsd.exe with the /classes switch.
+		 * It only includes the relevent details but was based on the following namespaces:
+		 *   urn:oasis:names:tc:SAML:2.0:protocol
+		 *   urn:oasis:names:tc:SAML:2.0:assertion
+		 *   http://www.w3.org/2000/09/xmldsig#
+		 *   http://www.w3.org/2001/04/xmlenc
+		 */
+
+		[XmlTypeAttribute (Namespace = "urn:oasis:names:tc:SAML:2.0:protocol")]
+		[XmlRootAttribute ("RequestedAuthnContext", Namespace = "urn:oasis:names:tc:SAML:2.0:protocol", IsNullable = false)]
+		public class RequestedAuthnContext
+		{
+			string[] items;
+			ItemsChoice7[] itemsElementName;
+
+			[XmlElementAttribute ("AuthnContextClassRef", typeof (string), Namespace = "urn:oasis:names:tc:SAML:2.0:assertion", DataType = "anyURI")]
+			[XmlElementAttribute ("AuthnContextDeclRef", typeof (string), Namespace = "urn:oasis:names:tc:SAML:2.0:assertion", DataType = "anyURI")]
+			[XmlChoiceIdentifierAttribute ("ItemsElementName")]
+			public string[] Items {
+				get { return this.items; }
+				set { this.items = value; }
+			}
+
+			[XmlElementAttribute ("ItemsElementName")]
+			[XmlIgnoreAttribute ()]
+			public ItemsChoice7[] ItemsElementName {
+				get { return this.itemsElementName; }
+				set { this.itemsElementName = value; }
+			}
+		}
+
+		[XmlTypeAttribute (Namespace = "urn:oasis:names:tc:SAML:2.0:protocol", IncludeInSchema = false)]
+		public enum ItemsChoice7 {
+			[XmlEnumAttribute ("urn:oasis:names:tc:SAML:2.0:assertion:AuthnContextClassRef")]
+			AuthnContextClassRef,
+			[XmlEnumAttribute ("urn:oasis:names:tc:SAML:2.0:assertion:AuthnContextDeclRef")]
+			AuthnContextDeclRef,
+		}
+		// End snippet from xsd.exe
+	
+		[Test]
+		public void FullyQualifiedName_XmlEnumAttribute ()
+		{
+			var serializer = new XmlSerializer (typeof (RequestedAuthnContext)); 
+		}
 	}
 }
 

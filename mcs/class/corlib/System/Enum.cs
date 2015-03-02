@@ -278,9 +278,8 @@ namespace System
 		{
 			if (targetType == null)
 				throw new ArgumentNullException ("targetType");
-			if (targetType == typeof (string))
-				return ToString (provider);
-			return Convert.ToType (Value, targetType, provider, false);
+
+			return Convert.ToType (this, targetType, provider, false);
 		}
 
 		ushort IConvertible.ToUInt16 (IFormatProvider provider)
@@ -629,7 +628,11 @@ namespace System
 
 			result = default (TEnum);
 
-			if (value == null || value.Trim ().Length == 0)
+			if (value == null)
+				return false;
+
+			value = value.Trim ();
+			if (value.Length == 0)
 				return false;
 
 			return Parse (tenum_type, value, ignoreCase, out result);
